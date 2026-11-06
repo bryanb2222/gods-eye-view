@@ -5,7 +5,17 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 PORT="${PORT:-4173}"
-HOST="${HOST:-0.0.0.0}"
+# Loopback only. This script previously defaulted to 0.0.0.0.
+REQUESTED_HOST="${HOST:-127.0.0.1}"
+case "${REQUESTED_HOST}" in
+  127.0.0.1|localhost|::1)
+    HOST="127.0.0.1"
+    ;;
+  *)
+    echo "Refusing non-loopback HOST=${REQUESTED_HOST}. Binding 127.0.0.1 only."
+    HOST="127.0.0.1"
+    ;;
+esac
 CCTV_SOURCES_FILE="${CCTV_SOURCES_FILE:-config/cctv_sources.austin.json}"
 CCTV_PREFER_AUSTIN="${CCTV_PREFER_AUSTIN:-1}"
 CCTV_AUSTIN_MAX_SOURCES="${CCTV_AUSTIN_MAX_SOURCES:-36}"
@@ -156,7 +166,7 @@ resolve_opensky_credentials() {
 resolve_opensky_credentials
 
 echo "Starting God's Eye View with CCTV source pack..."
-echo "URL: http://localhost:${PORT}/"
+echo "URL: http://127.0.0.1:${PORT}/"
 echo "Google Maps key source: ${GOOGLE_MAPS_API_KEY_SOURCE}"
 if [[ -f "${CCTV_SOURCES_FILE}" ]]; then
   echo "CCTV_SOURCES_FILE: ${CCTV_SOURCES_FILE}"

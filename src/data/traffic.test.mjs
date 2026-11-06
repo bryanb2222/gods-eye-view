@@ -1,10 +1,10 @@
 // src/data/traffic.test.mjs
 // Feed-state honesty for the traffic layer (roadmap L7).
 //
-// A launch-day stranger runs a keyless build. The layer then simulates
-// traffic, and every surface it drives — the toggle chip, the panel meta
-// line, the traffic sync chip — has to say so. The two pure helpers below own
-// that contract; the layer's getStats() is a thin caller.
+// A launch-day stranger runs a keyless build. The layer must not invent
+// vehicles. Every surface it drives — the toggle chip, the panel meta line,
+// the traffic sync chip — has to say the live flow feed is unavailable.
+// The two pure helpers below own that contract; getStats() is a thin caller.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import trafficLayer, {
@@ -37,21 +37,19 @@ test('flow failures map onto short, specific reasons', () => {
   assert.equal(reason('flow fetch failed'), 'TomTom flow unavailable');
 });
 
-test('keyless traffic names the mode and the remedy, loading or idle', () => {
+test('keyless traffic is unavailable and does not claim a feed, loading or idle', () => {
   const idle = trafficFeedPresentation({ liveMode: false, fetching: false });
   const loading = trafficFeedPresentation({ liveMode: false, fetching: true });
-  assert.equal(idle.mode, 'sim');
-  assert.equal(loading.mode, 'sim');
-  // Keyless is a designed fallback, not a fault — no error, or every keyless
-  // build would boot with a red chip.
-  assert.equal(idle.error, null);
-  assert.equal(loading.error, null);
-  // One terse line in both states; the chip's progress text carries "working".
-  assert.equal(idle.loadingLabel, 'SIMULATED — add TomTom key for live');
-  assert.equal(loading.loadingLabel, 'SIMULATED — add TomTom key for live');
+  assert.equal(idle.mode, 'off');
+  assert.equal(loading.mode, 'off');
+  assert.equal(idle.error, 'TomTom key required');
+  assert.equal(loading.error, 'TomTom key required');
+  assert.equal(idle.loadingLabel, 'UNAVAILABLE — add a TomTom key for live flow');
+  assert.equal(loading.loadingLabel, 'UNAVAILABLE — add a TomTom key for live flow');
+  assert.equal(trafficLayer.getParams().uncoveredRoads, 'hide');
 });
 
-test('no keyless label ever implies a live feed', () => {
+test('no keyless or outage label ever implies a live feed', () => {
   const labels = [
     trafficFeedPresentation({ liveMode: false, fetching: false }),
     trafficFeedPresentation({ liveMode: false, fetching: true }),
@@ -61,14 +59,15 @@ test('no keyless label ever implies a live feed', () => {
   ].map((feed) => feed.loadingLabel);
   for (const label of labels) {
     assert.ok(!LIVE_CLAIM.test(label), `label implies live data: ${label}`);
-    assert.ok(label.startsWith('SIMULATED'), `fallback label must lead with the mode: ${label}`);
+    assert.ok(!/SIMULATED/i.test(label), `label still describes a running simulation: ${label}`);
   }
 });
 
-test('simulating because the status probe failed reads differently from keyless by design', () => {
+test('an unreachable status probe stays off and reads differently from a missing key', () => {
   const probeDown = trafficFeedPresentation({ statusUnavailable: true });
-  assert.equal(probeDown.mode, 'sim');
-  assert.equal(probeDown.loadingLabel, 'SIMULATED — traffic service unreachable');
+  assert.equal(probeDown.mode, 'off');
+  assert.equal(probeDown.error, 'TomTom status unreachable');
+  assert.equal(probeDown.loadingLabel, 'UNAVAILABLE — traffic service unreachable');
 });
 
 test('a healthy keyed layer reports live flow with its real coverage', () => {
@@ -92,7 +91,7 @@ test('a mid-session flow outage degrades instead of reporting stale live coverag
   });
   // error and loadingLabel are ONE string: the manager's error branch renders
   // `error` and drops `loadingLabel`, so the copy has to live in both.
-  assert.equal(down.error, 'SIMULATED — TomTom daily budget reached');
+  assert.equal(down.error, 'TomTom daily budget reached');
   assert.equal(down.loadingLabel, down.error);
   assert.ok(!down.loadingLabel.includes('87'));
   const busy = trafficFeedPresentation({
@@ -103,15 +102,15 @@ test('a mid-session flow outage degrades instead of reporting stale live coverag
   assert.deepEqual(busy, down, 'the degraded state reads the same whether or not a load is in flight');
 });
 
-test('the rendered steady-state meta line carries the SIMULATED copy', () => {
+test('the rendered steady-state meta line says the feed is unavailable or degraded', () => {
   const mgr = new DataLayerManager({});
   const stats = (feed) => ({ count: 544, lastUpdate: Date.now(), ...feed });
   assert.equal(
     mgr._buildMetaText({
       source: 'OpenStreetMap',
-      stats: stats(trafficFeedPresentation({ liveMode: false })),
+      stats: { count: 0, lastUpdate: null, ...trafficFeedPresentation({ liveMode: false }) },
     }),
-    'FALLBACK · OpenStreetMap · SIMULATED — add TomTom key for live',
+    'UNAVAILABLE · OpenStreetMap · TomTom key required',
   );
   assert.equal(
     mgr._buildMetaText({
@@ -121,15 +120,15 @@ test('the rendered steady-state meta line carries the SIMULATED copy', () => {
         flowError: 'TomTom daily budget reached',
       })),
     }),
-    'DEGRADED · OpenStreetMap · SIMULATED — TomTom daily budget reached',
+    'DEGRADED · OpenStreetMap · TomTom daily budget reached',
   );
 });
 
-test('the manager reads keyless as FALLBACK and an outage as DEGRADED', () => {
+test('the manager reads keyless as UNAVAILABLE and an outage as DEGRADED', () => {
   const settled = { count: 4200, lastUpdate: Date.now() };
   assert.equal(
-    layerFeedState({ ...settled, ...trafficFeedPresentation({ liveMode: false }) }),
-    'fallback',
+    layerFeedState({ count: 0, lastUpdate: null, ...trafficFeedPresentation({ liveMode: false }) }),
+    'unavailable',
   );
   assert.equal(
     layerFeedState({ ...settled, ...trafficFeedPresentation({ liveMode: true }) }),
@@ -144,10 +143,12 @@ test('the manager reads keyless as FALLBACK and an outage as DEGRADED', () => {
   );
 });
 
-test('the shipped layer boots keyless-honest before any status check', () => {
+test('the shipped layer boots with simulation disabled before any status check', () => {
   const stats = trafficLayer.getStats();
-  assert.equal(stats.mode, 'sim');
-  assert.equal(stats.error, null);
+  assert.equal(stats.mode, 'off');
+  assert.equal(stats.error, 'TomTom key required');
+  assert.equal(stats.count, 0);
   assert.ok(!LIVE_CLAIM.test(stats.loadingLabel), `boot label implies live data: ${stats.loadingLabel}`);
-  assert.equal(layerFeedState(stats), 'fallback');
+  assert.ok(!/SIMULATED/i.test(stats.loadingLabel));
+  assert.equal(layerFeedState(stats), 'unavailable');
 });

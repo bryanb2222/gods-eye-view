@@ -22,13 +22,13 @@ import { holdContinuousRender, releaseContinuousRender } from '../renderGovernor
  * the camera viewport, spawns PointPrimitives that lerp along pre-computed
  * Cartesian3 waypoints. Camera-gated: only active below ~8 km altitude.
  *
- * Two modes (decided once per session via `/api/tomtom/status`):
- *  - `sim` (keyless default): white dots at hardcoded per-road-class speeds —
- *    the original simulation, byte-identical behavior.
- *  - `live`: TomTom flow tiles (`flowTiles.js`) are matched onto the same
- *    Overpass roads (`flowMatch.js`); matched roads color/slow/densify their
- *    dots by real congestion (`trafficFlowStyle.js`), closed roads spawn no
- *    dots, and unmatched roads keep the simulated white.
+ * Two states (decided once per session via `/api/tomtom/status`):
+ *  - keyless, or status unreachable: the layer stays off. It does not invent
+ *    vehicles, and the chip says the live flow feed is unavailable.
+ *  - `live`: TomTom flow tiles (`flowTiles.js`) are matched onto Overpass
+ *    roads (`flowMatch.js`). Only roads with a real flow match spawn dots,
+ *    colored and paced by that congestion (`trafficFlowStyle.js`). Closed
+ *    roads and roads with no flow match spawn nothing.
  *
  * Architecture overview:
  *  - Camera-change listener triggers debounced road fetching per viewport tile.
@@ -186,14 +186,14 @@ let _prevPercentageChanged = null;
 let _liveMode = false;
 /**
  * Short user-facing reason live flow is currently unavailable, or null while
- * healthy. Only ever set in live mode: keyless simulation is a designed
- * fallback, not a fault, and must never read as an error.
+ * healthy. Keyless operation is unavailable, not a simulated feed.
  * @type {string|null}
  */
 let _flowError = null;
 /**
- * True when `/api/tomtom/status` itself could not be reached, so the layer is
- * simulating because it could not ask — not because the server said "no key".
+ * True when `/api/tomtom/status` itself could not be reached, so live flow
+ * stays off because the layer could not ask — not because the server said
+ * "no key".
  * @type {boolean}
  */
 let _flowStatusUnavailable = false;
@@ -216,13 +216,13 @@ let _flowPending = 0;
 let _bucketCounts = { free: 0, slow: 0, jam: 0, sim: 0 };
 /** @type {number} Roads in the current render skipped entirely as closed. */
 let _closedRoads = 0;
-/** @type {'sim'|'hide'} Live-mode treatment of roads without flow data. */
-let _uncoveredMode = 'sim';
+/** @type {'hide'} Roads without real flow data spawn nothing. */
+let _uncoveredMode = 'hide';
 /**
  * Jam-viz prototype mode: 'density' = deep-jam density boost + platoon queues
  * + stop-and-go creep; 'heatline' = congestion corridor polylines; 'both';
- * 'none' = shipped main behavior. Live mode only — the keyless simulation
- * never has `road.flow`, so every jamViz path is unreachable there.
+ * 'none' = shipped main behavior. Live mode only — keyless operation never
+ * loads roads, so every jamViz path is unreachable there.
  * Default 'density' — owner A/B verdict 2026-07-23 (heatline stays available
  * via setParams).
  * @type {'none'|'density'|'heatline'|'both'}
@@ -649,9 +649,9 @@ function computeDotCount(road, altitude) {
   // `road.flow` is only ever set in live mode, so the keyless path is
   // untouched (flow stays undefined → multiplier 1, identical output).
   const flow = _liveMode ? road.flow : null;
-  if (flow?.closure) return 0;
-  // Strict data-integrity view: uncovered roads spawn nothing when hidden.
-  if (_liveMode && !flow && _uncoveredMode === 'hide') return 0;
+  // No live flow match means no vehicles. Keyless and uncovered roads used to
+  // invent white dots at hardcoded speeds; that simulation is disabled.
+  if (!_liveMode || !flow || flow.closure) return 0;
 
   const lengthM = estimateRoadLengthDeg(road.coords);
 
@@ -758,11 +758,10 @@ function allocateRoadDotBudgets(roads, altitude, dotCap) {
  *   to `computeDotCount` when null.
  */
 function spawnDotsForRoad(road, altitude, budgetCount = null) {
-  // Live flow styling (`road.flow` only exists in live mode; keyless path is
-  // byte-identical): closures spawn nothing, congestion colors/slows dots.
+  // Dots exist only for a real TomTom flow match. Keyless roads and roads
+  // the flow feed did not cover spawn nothing.
   const flow = _liveMode ? road.flow : null;
-  if (flow?.closure) return;
-  if (_liveMode && !flow && _uncoveredMode === 'hide') return;
+  if (!_liveMode || !flow || flow.closure) return;
 
   const count = Number.isFinite(budgetCount)
     ? Math.max(0, Math.floor(budgetCount))
@@ -779,6 +778,7 @@ function spawnDotsForRoad(road, altitude, budgetCount = null) {
     + (bucket === 'jam' ? 1 : 0)
     + activeSizeDelta(bucket);
   const flowColor = bucket ? _activeBucketColors[bucket] : null;
+  if (!flowColor) return;
   // Dark-halo outline under styled presets (null = shipped no-outline).
   const outlineSpec = (bucket && _presetDots === 'on') ? presetDotOutline(_stylePreset, bucket) : null;
   const outlineColor = outlineSpec
@@ -838,8 +838,7 @@ function spawnDotsForRoad(road, altitude, budgetCount = null) {
     const point = _pointCollection.add({
       position: Cesium.Cartesian3.clone(_scratchLerp),
       pixelSize,
-      // No flow data → today's exact simulated white.
-      color: flowColor || Cesium.Color.WHITE.withAlpha(0.85),
+      color: flowColor,
       scaleByDistance: new Cesium.NearFarScalar(100, 1.5, _fadeScaleFar, jamProminent ? JAM_DOT_FAR_SCALE : 0.3),
       translucencyByDistance: new Cesium.NearFarScalar(100, 1.0, _fadeTransFar, 0.0),
       // visible through tiles only when very close (jam: city-scale punch)
@@ -1205,8 +1204,8 @@ function cancelActiveFetch() {
  *
  * `fetchFlowForBounds` only rejects when EVERY covering tile failed, so a
  * non-null result here always means "there is no live flow to show right
- * now" — the dots fall back to simulated white. Mirrors the
- * `deriveAisFeedError` honesty helper.
+ * now" — the layer draws no vehicles. Mirrors the `deriveAisFeedError`
+ * honesty helper.
  *
  * @param {Error|{name?:string, message?:string}|null|undefined} error - Rejection from the flow fetch.
  * @returns {string|null} Short reason, or null for an aborted (superseded) fetch.
@@ -1225,12 +1224,11 @@ export function deriveTrafficFlowError(error) {
 /**
  * Derive the layer's honest feed presentation from its live-flow state.
  *
- * The three states a user can be in, and what each must read as:
- *  - keyless → `mode:'sim'` (the manager maps that to a FALLBACK chip) with a
- *    label that never claims live data;
+ * The states a user can be in, and what each must read as:
+ *  - keyless, or the status probe failed → unavailable. Nothing is drawn.
  *  - live and healthy → LIVE with real coverage;
- *  - live but flow-down → an `error` string, so the chip degrades and says
- *    the colors on screen are simulated. Never a stale "LIVE · N% cov".
+ *  - live but flow-down → the TomTom error, with no invented vehicles and
+ *    never a stale "LIVE · N% cov".
  *
  * @param {Object} [input]
  * @param {boolean} [input.liveMode] - `/api/tomtom/status` reported a key.
@@ -1238,7 +1236,7 @@ export function deriveTrafficFlowError(error) {
  * @param {string|null} [input.flowError] - `deriveTrafficFlowError` result, if any.
  * @param {number} [input.coveragePct] - Matched-road coverage, 0–100.
  * @param {boolean} [input.statusUnavailable] - The status probe itself failed.
- * @returns {{mode:'live'|'sim', error:string|null, loadingLabel:string}}
+ * @returns {{mode:'live'|'off', error:string|null, loadingLabel:string}}
  */
 export function trafficFeedPresentation({
   liveMode = false,
@@ -1247,44 +1245,34 @@ export function trafficFeedPresentation({
   coveragePct = 0,
   statusUnavailable = false,
 } = {}) {
-  // `mode` is the CONFIGURED source (live key present vs keyless), not this
-  // instant's health — health rides on `error`. The qa-traffic harness pins
-  // that meaning.
-  const mode = liveMode ? 'live' : 'sim';
-  if (liveMode && flowError) {
-    // One string for both fields. The manager's meta line renders `error` and
-    // drops `loadingLabel` in its error branch, so the owner's SIMULATED copy
-    // has to BE the error text or the steady state reverts to a bare
-    // "TomTom daily budget reached" that never says what is on screen.
-    const degraded = `SIMULATED — ${flowError}`;
-    return { mode, error: degraded, loadingLabel: degraded };
+  if (!liveMode) {
+    const error = statusUnavailable
+      ? 'TomTom status unreachable'
+      : 'TomTom key required';
+    const loadingLabel = statusUnavailable
+      ? 'UNAVAILABLE — traffic service unreachable'
+      : 'UNAVAILABLE — add a TomTom key for live flow';
+    return { mode: 'off', error, loadingLabel };
   }
-  if (liveMode) {
-    return {
-      mode,
-      error: null,
-      loadingLabel: fetching
-        ? 'syncing LIVE traffic flow'
-        : `LIVE · TomTom flow · ${coveragePct}% cov`,
-    };
+  if (flowError) {
+    // The manager's error branch renders `error` and drops `loadingLabel`,
+    // so both fields carry the same reason. No simulated vehicles replace it.
+    return { mode: 'live', error: flowError, loadingLabel: flowError };
   }
-  // Keyless simulation — one terse line that names the mode and the remedy
-  // (owner's copy shape). The chip's own progress text carries "working";
-  // this line must never imply a live feed.
   return {
-    mode,
+    mode: 'live',
     error: null,
-    loadingLabel: statusUnavailable
-      ? 'SIMULATED — traffic service unreachable'
-      : 'SIMULATED — add TomTom key for live',
+    loadingLabel: fetching
+      ? 'syncing LIVE traffic flow'
+      : `LIVE · TomTom flow · ${coveragePct}% cov`,
   };
 }
 
 /**
  * Check `/api/tomtom/status` once per session and cache the result.
  * Live mode iff the server holds a TomTom key; the TomTom attribution credit
- * registers the first time live mode activates. Keyless or unreachable →
- * simulation mode, exactly today's behavior.
+ * registers the first time live mode activates. Keyless or unreachable leaves
+ * the layer off — it does not simulate traffic.
  *
  * @returns {Promise<void>} Resolves when `_liveMode` is settled.
  */
@@ -1301,11 +1289,11 @@ function ensureFlowStatus() {
         }
       })
       .catch((e) => {
-        // Simulating because we could not ask, which is NOT the same as
+        // Unavailable because we could not ask, which is NOT the same as
         // "server says no key" — getStats() distinguishes the two.
         _liveMode = false;
         _flowStatusUnavailable = true;
-        console.warn('[Data:Traffic] TomTom status unreachable — simulated traffic:', e?.message || e);
+        console.warn('[Data:Traffic] TomTom status unreachable — live flow off:', e?.message || e);
       });
   }
   return _flowStatusPromise;
@@ -1317,10 +1305,9 @@ function ensureFlowStatus() {
  *
  * Reuses the load-generation guard: stale flow responses are discarded, and
  * the shared AbortController lets `cancelActiveFetch()` (next load / disable)
- * cancel an in-flight flow fetch. Any failure leaves roads unmatched — the
- * dots then render in today's simulated white, never a phantom color — and is
- * recorded in `_flowError` so `getStats()` degrades honestly instead of
- * reporting a stale "LIVE · N% cov" over simulated dots.
+ * cancel an in-flight flow fetch. Any failure leaves roads unmatched, so no
+ * vehicles are drawn, and is recorded in `_flowError` so `getStats()` degrades
+ * honestly instead of reporting a stale "LIVE · N% cov".
  *
  * @param {Array} roads - Parsed road objects (mutated: `road.flow`).
  * @param {{south:number,west:number,north:number,east:number}} clamped - Fetch bounds.
@@ -1362,7 +1349,7 @@ async function applyFlowToRoads(roads, clamped, generation) {
       // now-false coverage number and surface the reason through getStats().
       _flowError = deriveTrafficFlowError(e);
       _flowCoveragePct = 0;
-      console.warn('[Data:Traffic] Flow fetch failed (sim colors remain):', e?.message || e);
+      console.warn('[Data:Traffic] Flow fetch failed (no vehicles drawn):', e?.message || e);
     }
   } finally {
     _flowPending -= 1;
@@ -1589,6 +1576,12 @@ function rebuildHeatLines(roads) {
  * @param {Object|null} [trace=null] - Development-only correlated load trace.
  */
 function renderRoadsForAltitude(roads, altitude, label, trace = null) {
+  if (!_liveMode) {
+    clearDots();
+    _roads = [];
+    _count = 0;
+    return;
+  }
   const state = TRAFFIC_TIMING_ENABLED && trace
     ? trafficTimingRenderState(trace, label)
     : null;
@@ -2036,6 +2029,18 @@ async function loadRoadsForBounds(bounds, altitude, trace = null) {
   // Increment generation to invalidate any in-flight responses from prior calls
   const generation = ++_loadGeneration;
   cancelActiveFetch();
+  await ensureFlowStatus();
+  if (!_enabled || generation !== _loadGeneration) return;
+  if (!_liveMode) {
+    clearDots();
+    _roads = [];
+    _count = 0;
+    _lastUpdate = null;
+    _flowCoveragePct = 0;
+    _flowError = null;
+    _fetching = false;
+    return;
+  }
   const clamped = clampBounds(bounds);
 
   // Cache key: fixed-precision bounding-box string for deterministic lookups
@@ -2270,7 +2275,7 @@ const trafficLayer = {
     // failed first fetch left the viewport unloaded while parked.
     clearInterval(_enableKickTimer);
     _enableKickTimer = setInterval(() => {
-      if (!_enabled || _lastUpdate) {
+      if (!_enabled || _lastUpdate || (_flowStatusPromise && !_liveMode)) {
         clearInterval(_enableKickTimer);
         _enableKickTimer = null;
         return;
@@ -2343,13 +2348,10 @@ const trafficLayer = {
     if (typeof params.speedScale === 'number') {
       _speedScale = Math.max(0.3, Math.min(3.0, params.speedScale));
     }
-    // Live-mode treatment of roads TomTom has no flow data for:
-    // 'sim' (default) keeps them as today's white ambient dots — colored =
-    // real data, white = simulation; 'hide' spawns nothing on them (strict
-    // data-integrity view). Owner-explorable; re-render applies on the next
-    // camera-driven load.
+    // Roads without TomTom flow used to accept uncoveredRoads:'sim' and draw
+    // invented white vehicles. That mode is disabled; only 'hide' remains.
     if (params.uncoveredRoads === 'sim' || params.uncoveredRoads === 'hide') {
-      _uncoveredMode = params.uncoveredRoads;
+      _uncoveredMode = 'hide';
     }
     // Jam-viz prototype toggle (owner A/B): 'none' = shipped main behavior;
     // live mode only, applies on the next camera-driven load like the
@@ -2450,14 +2452,14 @@ const trafficLayer = {
   /**
    * Return current layer statistics for UI status chips.
    * `mode` is the CONFIGURED source — 'live' (a TomTom key is present) or
-   * 'sim' (keyless simulation, which the manager renders as a FALLBACK chip);
-   * `error` carries this instant's health, so a live-configured layer whose
-   * flow feed went down reads DEGRADED with the reason instead of a stale
-   * LIVE coverage number. `flowCoveragePct` is matched roads / roads with any
+   * 'off' (no key, or the status probe failed). `error` carries this instant's
+   * health, so a live-configured layer whose flow feed went down reads
+   * DEGRADED with the reason instead of a stale LIVE coverage number.
+   * `flowCoveragePct` is matched roads / roads with any
    * flow candidates (0–100 int); `tilesFetched` counts flow-tile requests
    * issued to the proxy this session (decode-cache hits excluded).
    * @returns {{count:number, lastUpdate:number|null, loading:boolean,
-   *   mode:'live'|'sim', error:string|null, flowCoveragePct:number,
+   *   mode:'live'|'off', error:string|null, flowCoveragePct:number,
    *   tilesFetched:number}}
    */
   getStats() {
@@ -2495,9 +2497,8 @@ const trafficLayer = {
       // after each completed load (ui.js _updateTrafficSyncChip semantics).
       // The settled flash carries NO progress number beside it — this label's
       // coverage figure is the chip's only percentage — so a label that ends
-      // in one had better be the honest one. This is also where LIVE vs
-      // SIMULATED mode is surfaced, and it must never imply a live feed the
-      // layer does not have.
+      // in one had better be the honest one. Keyless copy says the feed is
+      // unavailable and must never imply a live or simulated feed.
       loadingLabel: feed.loadingLabel,
     };
   },

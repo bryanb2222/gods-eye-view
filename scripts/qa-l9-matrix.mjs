@@ -700,29 +700,30 @@ check({
 });
 
 check({
-  id: 'A8', group: 'A', desc: 'Default launch binds localhost; LAN is an explicit opt-in that warns (release bar #3)',
+  id: 'A8', group: 'A', desc: 'Default launch binds 127.0.0.1 and refuses a non-loopback HOST (release bar #3)',
   run: async () => {
     const sh_ = readFileSync(resolve(REPO_ROOT, 'scripts/dev-fresh.sh'), 'utf8');
-    const localDefault = /HOST="\$\{HOST:-localhost\}"/.test(sh_);
-    const warns = /WARNING: HOST=/.test(sh_) && /brokers your configured API keys/i.test(sh_);
-    const localBanner = /Local-only mode/.test(sh_);
-    if (localDefault && warns && localBanner) return pass('HOST defaults to localhost; LAN path prints the key-exposure warning');
-    return fail(`localhost-default=${localDefault} lan-warning=${warns} local-banner=${localBanner}`);
+    const localDefault = /HOST="127\.0\.0\.1"/.test(sh_) && /Refusing non-loopback HOST=/.test(sh_);
+    const noLanOptIn = !/set HOST=0\.0\.0\.0/.test(sh_);
+    const localBanner = /Local-only mode: reachable at http:\/\/127\.0\.0\.1:/.test(sh_);
+    if (localDefault && noLanOptIn && localBanner) return pass('HOST is forced to 127.0.0.1; non-loopback hosts are refused');
+    return fail(`loopback-default=${localDefault} no-lan-opt-in=${noLanOptIn} local-banner=${localBanner}`);
   },
 });
 
 check({
-  id: 'A9', group: 'A', desc: '.env.example documents LAN opt-in + the cost-control throttles',
+  id: 'A9', group: 'A', desc: '.env.example documents loopback-only bind + the cost-control throttles',
   run: async () => {
     const t = readFileSync(resolve(REPO_ROOT, '.env.example'), 'utf8');
     const bits = {
-      lan: /HOST=0\.0\.0\.0/.test(t),
+      loopback: /bind 127\.0\.0\.1 only/.test(t) && /non-loopback values are refused/.test(t),
+      noLanOptIn: !/set HOST=0\.0\.0\.0 to share/.test(t),
       google: /GEV_RATELIMIT_GOOGLE_PER_MIN/.test(t),
       openai: /GEV_RATELIMIT_OPENAI_PER_MIN/.test(t),
-      notBilling: /not.*billing cap|billing cap/i.test(t),
+      notBilling: /NOT a billing cap/.test(t),
     };
     const bad = Object.entries(bits).filter(([, v]) => !v).map(([k]) => k);
-    return bad.length === 0 ? pass('LAN opt-in + both throttles + the not-a-billing-cap caveat') : fail(`missing: ${bad.join(', ')}`);
+    return bad.length === 0 ? pass('loopback-only bind + both throttles + the not-a-billing-cap caveat') : fail(`missing: ${bad.join(', ')}`);
   },
 });
 
@@ -1176,7 +1177,7 @@ const MANUAL = [
   ['M1', 'Voice mic round trip 1/3 — "when is the next ISS pass?" (next_iss_pass)'],
   ['M2', 'Voice mic round trip 2/3 — connect/disconnect twice in one tab + keyed set_context_mode and control_cockpit'],
   ['M3', 'Voice mic round trip 3/3 — adsbdb enrichment readout on a live tracked flight'],
-  ['M4', 'LAN warning path — HOST=0.0.0.0 banner, LAN URL, and a throttled response'],
+  ['M4', 'Confirm the dev server is reachable only at http://127.0.0.1:4173 and a non-loopback HOST is refused'],
   ['M5', 'Live AIS vessel one-click camera transfer — requires status=live, not cached rows (never verified against a live feed)'],
   ['M6', 'CCTV dense-city interaction — cold fill, hover, select, card removal, monitor plane, coverage, auto-hop suspend'],
   ['M7', 'Grounded + airborne tracked aircraft from 2-3 headings (DISPLAY 3D ON, non-TR-3B subject)'],
@@ -1608,9 +1609,9 @@ async function runBrowserGroup(record) {
     const s = r.stats || {};
     if (env.keys.TOMTOM === false) {
       const label = String(s.loadingLabel || '');
-      return s.mode === 'sim' && /SIMULATED/i.test(label)
-        ? pass(`sim mode labelled honestly: "${label.slice(0, 70)}"`)
-        : fail(`mode=${s.mode} label="${label.slice(0, 70)}" — expected sim + a SIMULATED label`);
+      return s.mode === 'off' && s.count === 0 && /UNAVAILABLE/i.test(label) && !/SIMULATED/i.test(label)
+        ? pass(`keyless traffic is off: "${label.slice(0, 70)}"`)
+        : fail(`mode=${s.mode} count=${s.count} label="${label.slice(0, 70)}" — expected off, zero vehicles, and an UNAVAILABLE label`);
     }
     const colored = (s.flowBuckets?.free || 0) + (s.flowBuckets?.slow || 0) + (s.flowBuckets?.jam || 0);
     if (s.mode === 'live' && s.tilesFetched > 0 && colored > 0) {

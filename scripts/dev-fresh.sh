@@ -5,10 +5,18 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 PORT="${PORT:-4173}"
-# Local-only by default: the dev server brokers configured API keys, so it
-# should not be reachable from the network unless explicitly requested.
-# Set HOST=0.0.0.0 to opt in to LAN exposure (a warning is printed).
-HOST="${HOST:-localhost}"
+# Loopback only. The dev server brokers configured API keys, so a non-loopback
+# HOST is ignored instead of binding 0.0.0.0 or a LAN address.
+REQUESTED_HOST="${HOST:-127.0.0.1}"
+case "${REQUESTED_HOST}" in
+  127.0.0.1|localhost|::1)
+    HOST="127.0.0.1"
+    ;;
+  *)
+    echo "Refusing non-loopback HOST=${REQUESTED_HOST}. Binding 127.0.0.1 only."
+    HOST="127.0.0.1"
+    ;;
+esac
 # CCTV source packs (all keyless): Austin (~815 live upstream), Caltrans
 # districts 4,7,11,3 = SF/LA/San Diego/Sacramento (~1,860 live upstream),
 # TfL London JamCams (~870 live upstream). Caps keep the densest cores per
@@ -247,41 +255,7 @@ echo "Clearing Vite cache..."
 rm -rf node_modules/.vite
 
 echo "Starting fresh God's Eye View dev server..."
-case "${HOST}" in
-  localhost|127.0.0.1|::1)
-    echo "Local-only mode: reachable at http://localhost:${PORT}/ (set HOST=0.0.0.0 for LAN)"
-    ;;
-  *)
-    LAN_IP=""
-    if command -v ipconfig >/dev/null 2>&1; then
-      # macOS: first active interface wins
-      for iface in en0 en1; do
-        LAN_IP="$(ipconfig getifaddr "${iface}" 2>/dev/null || true)"
-        [[ -n "${LAN_IP}" ]] && break
-      done
-    elif command -v hostname >/dev/null 2>&1; then
-      # Linux: hostname -I lists addresses; take the first
-      LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
-    fi
-    echo ""
-    echo "!! =============================================================="
-    echo "!! WARNING: HOST=${HOST} — network-exposed mode."
-    echo "!! This dev server brokers your configured API keys (OpenAI,"
-    echo "!! OpenSky, AISStream, TomTom, FIRMS, LL2, Google) to ANYONE who can"
-    echo "!! reach it on the network. Use only on networks you trust."
-    echo "!! Consider the opt-in per-IP throttles GEV_RATELIMIT_OPENAI_PER_MIN"
-    echo "!! and GEV_RATELIMIT_GOOGLE_PER_MIN (see .env.example) — and note"
-    echo "!! they are NOT billing caps; set provider-side budget alerts too."
-    if [[ -n "${LAN_IP}" ]]; then
-      echo "!! LAN URL: http://${LAN_IP}:${PORT}/"
-    else
-      echo "!! LAN URL: http://<this-machine-ip>:${PORT}/"
-    fi
-    echo "!! =============================================================="
-    echo ""
-    echo "URL (this machine): http://localhost:${PORT}/"
-    ;;
-esac
+echo "Local-only mode: reachable at http://127.0.0.1:${PORT}/"
 echo "Google Maps key source: ${GOOGLE_MAPS_API_KEY_SOURCE}"
 echo "Tip: after server starts, hard refresh browser (Cmd+Shift+R)."
 echo "If panels are still missing, run this once in browser console:"
@@ -332,7 +306,7 @@ else
   echo "Startup map: Esri World Imagery with keyless terrain (OpenStreetMap fallback)"
 fi
 [[ -n "${CESIUM_ION_TOKEN}" ]] && echo "Cesium ion token: configured — Google 3D, Bing, and world-terrain stacks available" || echo "Cesium ion token: not set"
-[[ -n "${TOMTOM_API_KEY}" ]] && echo "TomTom key (live traffic flow): configured" || echo "TomTom key (live traffic flow): not set — simulated traffic"
+[[ -n "${TOMTOM_API_KEY}" ]] && echo "TomTom key (live traffic flow): configured" || echo "TomTom key (live traffic flow): not set — traffic layer unavailable, simulation disabled"
 [[ -n "${FIRMS_MAP_KEY}" ]] && echo "NASA FIRMS key (live fires): configured" || echo "NASA FIRMS key (live fires): not set — fires layer requires a key"
 [[ -n "${LL2_API_TOKEN}" ]] && echo "Launch Library 2 token: configured" || echo "Launch Library 2 token: not set — using public access"
 

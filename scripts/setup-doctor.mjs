@@ -144,7 +144,9 @@ export function buildCapabilitySummary(credentials) {
     voice: configured('OPENAI_API_KEY') ? 'available' : 'off until an OpenAI key is added',
     vessels: configured('AISSTREAM_API_KEY') ? 'live AISStream feed' : 'off until an AISStream key is added',
     fires: configured('FIRMS_MAP_KEY') ? 'live NASA FIRMS feed' : 'off until a FIRMS key is added',
-    traffic: configured('TOMTOM_API_KEY') ? 'live TomTom flow' : 'built-in traffic simulation',
+    traffic: configured('TOMTOM_API_KEY')
+      ? 'live TomTom flow'
+      : 'off until a TomTom key is added — built-in simulation disabled',
     missions: configured('LL2_API_TOKEN')
       ? 'Launch Library 2 token allowance'
       : 'Launch Library 2 public access',
@@ -185,8 +187,8 @@ export function formatSetupReport(report, { readyMessage } = {}) {
   const hasKeychainSource = Object.values(report.credentials || {})
     .some((credential) => credential?.source === 'macOS Keychain');
   const resolvedReadyMessage = readyMessage || (hasKeychainSource
-    ? 'Ready. Run ./scripts/dev-fresh.sh, then open http://localhost:4173.'
-    : 'Ready. Run npm run dev, then open http://localhost:4173.');
+    ? 'Ready. Run ./scripts/dev-fresh.sh, then open http://127.0.0.1:4173.'
+    : 'Ready. Run npm run dev, then open http://127.0.0.1:4173.');
   const lines = [
     "God's Eye View setup doctor",
     '',
