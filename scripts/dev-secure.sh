@@ -5,8 +5,17 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 PORT="${PORT:-4173}"
-# Local-only by default; set HOST=0.0.0.0 explicitly to expose on the LAN.
-HOST="${HOST:-localhost}"
+# Loopback only. A non-loopback HOST is ignored.
+REQUESTED_HOST="${HOST:-127.0.0.1}"
+case "${REQUESTED_HOST}" in
+  127.0.0.1|localhost|::1)
+    HOST="127.0.0.1"
+    ;;
+  *)
+    echo "Refusing non-loopback HOST=${REQUESTED_HOST}. Binding 127.0.0.1 only."
+    HOST="127.0.0.1"
+    ;;
+esac
 
 GOOGLE_MAPS_API_KEY_ENV="${GOOGLE_MAPS_API_KEY:-}"
 GOOGLE_MAPS_API_KEY_KEYCHAIN=""
@@ -151,7 +160,7 @@ CCTV_AUSTIN_MAX_SOURCES="${CCTV_AUSTIN_MAX_SOURCES:-36}"
 CCTV_MAX_SOURCES="${CCTV_MAX_SOURCES:-48}"
 
 echo "Starting God's Eye View dev server..."
-echo "URL: http://localhost:${PORT}/"
+echo "URL: http://127.0.0.1:${PORT}/"
 echo "Google Maps key source: ${GOOGLE_MAPS_API_KEY_SOURCE}"
 echo "OpenSky auth mode: ${OPENSKY_AUTH_MODE}"
 if [[ -n "${OPENSKY_CREDENTIALS_FILE}" ]]; then

@@ -248,8 +248,8 @@ async function main() {
       if (!ok) exitCode = 1;
     }
 
-    // ── (v) KEYLESS fallback (intercepted — server key untouched) ────────────
-    console.log('\n(v) KEYLESS — intercepted status, expect pure simulation...');
+    // ── (v) KEYLESS — intercepted status must not invent vehicles ────────────
+    console.log('\n(v) KEYLESS — intercepted status, expect the layer to stay off...');
     await page.setRequestInterception(true);
     const keylessFlowReqs = [];
     page.on('request', (req) => {
@@ -271,30 +271,24 @@ async function main() {
       { timeout: 60000 },
     );
     await sleep(1500);
-    let simStats = await settleTraffic(page, { lon: -98.4936, lat: 29.4241, height: 3000 }, { minCount: 100, timeoutS: 45 });
-    if (!simStats || simStats.count === 0) {
-      // Public Overpass can throttle bursts across harness runs — one retry.
-      simStats = await settleTraffic(page, { lon: -98.487, lat: 29.43, height: 3000 }, { minCount: 100, timeoutS: 45 });
-    }
+    const simStats = await settleTraffic(
+      page,
+      { lon: -98.4936, lat: 29.4241, height: 3000 },
+      { minCount: 0, timeoutS: 8 },
+    );
     {
-      const b = simStats.flowBuckets || {};
-      const allWhite = simStats.count > 0 && b.sim === simStats.count && !b.free && !b.slow && !b.jam;
-      record('KEYLESS: stats.mode === "sim"', simStats.mode === 'sim', `mode=${simStats.mode}`);
-      record('KEYLESS: every dot is white simulation', allWhite,
-        `count=${simStats.count} sim=${b.sim} free=${b.free} slow=${b.slow} jam=${b.jam}`);
+      const label = String(simStats?.loadingLabel || '');
+      const off = simStats?.mode === 'off' && simStats.count === 0 && /UNAVAILABLE/i.test(label);
+      record('KEYLESS: stats.mode === "off" and no vehicles are drawn', off,
+        `mode=${simStats?.mode} count=${simStats?.count} label="${label}"`);
       record('KEYLESS: zero flow-tile requests issued', keylessFlowReqs.length === 0,
         `flowRequests=${keylessFlowReqs.length}`);
-      // Keyless is a designed fallback, not a fault: it must read SIMULATED
-      // without ever raising a layer error.
-      const keylessHonest = !simStats.error
-        && String(simStats.loadingLabel || '').startsWith('SIMULATED');
-      record('KEYLESS: no error, and the label reads SIMULATED', keylessHonest,
-        `err=${simStats.error || 'none'} label="${simStats.loadingLabel}"`);
-      if (simStats.mode !== 'sim' || !allWhite || keylessFlowReqs.length !== 0 || !keylessHonest) {
-        exitCode = 1;
-      }
+      const keylessHonest = simStats?.error === 'TomTom key required' && !/SIMULATED/i.test(label);
+      record('KEYLESS: error names the missing key and does not say SIMULATED', keylessHonest,
+        `err=${simStats?.error || 'none'} label="${label}"`);
+      if (!off || keylessFlowReqs.length !== 0 || !keylessHonest) exitCode = 1;
       await sleep(1000);
-      await page.screenshot({ path: path.join(SHOTS_DIR, 'traffic-sim-keyless.png') });
+      await page.screenshot({ path: path.join(SHOTS_DIR, 'traffic-keyless-off.png') });
     }
   } catch (e) {
     console.error('\x1b[31mHarness error:\x1b[0m', e);

@@ -463,7 +463,7 @@ test('a flow failure landing after the roads settle still ends the batch as LOAD
     loading: false,
     count: 544,
     mode: 'live',
-    error: 'SIMULATED — TomTom daily budget reached',
+    error: 'TomTom daily budget reached',
   });
   state = reduceLoadingFeedback(state, flowFailed, 900);
   assert.equal(state.terminal, 'error');

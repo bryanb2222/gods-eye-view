@@ -4296,7 +4296,8 @@ async function refreshCctvSources() {
  * Produces a 960x540 SVG with a deterministic gradient (hue derived from
  * camera ID hash), scanline overlay, HUD-style grid, and text labels
  * showing camera name, city, ID, status, and current timestamp. Used
- * when no upstream image or Street View fallback is available.
+ * Retained as unused source. The frame proxy does not serve it; a missing
+ * live frame is a 404 and the client paints its own no-feed placeholder.
  *
  * @param {object} opts
  * @param {string} opts.cameraId
@@ -4504,7 +4505,9 @@ export async function fetchCctvImageFromUpstream(url, {
 
 /**
  * Vite plugin: CCTV camera proxy with source registry, frame/media serving,
- * fallback chain (upstream -> Street View -> synthetic SVG), and health tracking.
+ * upstream frames only. A missing live frame returns 404; Street View and
+ * synthetic SVG placeholders are not served as camera images. Health tracking
+ * remains.
  *
  * Endpoints:
  *   GET /api/cctv/sources        — list all registered camera sources
@@ -4557,38 +4560,6 @@ function cctvProxy() {
       provider: source?.provider || '',
       sourceKind: source?.sourceKind || (source?.url ? 'configured' : 'fallback'),
     };
-  };
-
-  /** Fetch a Google Street View static image as a fallback frame. Requires GOOGLE_MAPS_API_KEY. */
-  const streetViewFallback = async ({ lat, lon, heading, fov, pitch }) => {
-    const streetViewKey = process.env.GOOGLE_MAPS_API_KEY;
-    if (!streetViewKey || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-    try {
-      const sv = new URL('https://maps.googleapis.com/maps/api/streetview');
-      sv.searchParams.set('size', '960x540');
-      sv.searchParams.set('location', `${lat},${lon}`);
-      sv.searchParams.set('heading', String(Number.isFinite(heading) ? heading : 0));
-      sv.searchParams.set('fov', String(Number.isFinite(fov) ? Math.max(20, Math.min(120, fov)) : 80));
-      sv.searchParams.set('pitch', String(Number.isFinite(pitch) ? Math.max(-40, Math.min(20, pitch)) : 0));
-      sv.searchParams.set('source', 'outdoor');
-      sv.searchParams.set('return_error_code', 'true');
-      sv.searchParams.set('key', streetViewKey);
-
-      const svResp = await fetch(sv.toString(), {
-        headers: { 'User-Agent': 'gods-eye-view-cctv-proxy/1.0' },
-        signal: AbortSignal.timeout(CCTV_FRAME_FETCH_TIMEOUT_MS),
-      });
-      const svType = svResp.headers.get('content-type') || '';
-      if (!svResp.ok || !svType.startsWith('image/')) return null;
-
-      return {
-        ok: true,
-        body: Buffer.from(await svResp.arrayBuffer()),
-        contentType: svType,
-      };
-    } catch {
-      return null;
-    }
   };
 
   return {
@@ -4722,13 +4693,6 @@ function cctvProxy() {
 
           const cameraId = decodeURIComponent(url.pathname.replace('/frame/', '').trim()) || 'camera';
           const source = sourceById.get(cameraId);
-          const label = url.searchParams.get('label') || source?.name || cameraId;
-          const city = url.searchParams.get('city') || source?.city || '';
-          const lat = Number(url.searchParams.get('lat') || source?.lat);
-          const lon = Number(url.searchParams.get('lon') || source?.lon);
-          const heading = Number(url.searchParams.get('heading') || source?.headingDeg);
-          const fov = Number(url.searchParams.get('fov') || source?.fovDeg);
-          const pitch = Number(url.searchParams.get('pitch') || source?.pitchDeg);
 
           // Only use server-registered upstream URLs — never accept client-supplied URLs
           // (prevents SSRF via ?upstream= query parameter)
@@ -4753,43 +4717,25 @@ function cctvProxy() {
             return;
           }
 
-          const sv = await streetViewFallback({ lat, lon, heading, fov, pitch });
-          if (sv?.ok) {
-            setHealth(cameraId, {
-              status: 'degraded',
-              sourceKind: 'streetview',
-              label: 'Google Street View',
-              message: 'Fallback Street View frame',
-            });
-            res.writeHead(200, {
-              'Content-Type': sv.contentType,
-              'Cache-Control': 'no-store',
-              'X-CCTV-Source': 'streetview',
-            });
-            res.end(sv.body);
-            return;
-          }
-
-          const svg = buildSyntheticCctvSvg({
-            cameraId,
-            label,
-            city,
-            status: source?.url ? 'UPSTREAM UNAVAILABLE' : 'NO UPSTREAM CONFIGURED',
-          });
-
+          // Street View stills and generated SVG billboards are not the camera.
+          // Leave the client on its honest "no feed" placeholder.
           setHealth(cameraId, {
-            status: 'degraded',
-            sourceKind: 'synthetic',
-            label: source?.provider || 'Synthetic fallback',
+            status: 'unavailable',
+            sourceKind: 'unavailable',
+            label: source?.provider || 'No live frame',
             message: source?.url ? 'Upstream unavailable' : 'No source configured',
           });
-
-          res.writeHead(200, {
-            'Content-Type': 'image/svg+xml',
+          res.writeHead(404, {
+            'Content-Type': 'application/json',
             'Cache-Control': 'no-store',
-            'X-CCTV-Source': 'synthetic',
+            'X-CCTV-Source': 'unavailable',
           });
-          res.end(svg);
+          res.end(JSON.stringify({
+            error: 'live_frame_unavailable',
+            message: source?.url
+              ? 'Upstream camera frame unavailable'
+              : 'No live camera source configured',
+          }));
         } catch (error) {
           console.error('[CCTV Proxy]', error?.message || String(error));
           res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -7475,10 +7421,11 @@ function normalizeAisTimestamp(value) {
  *   reloads itself. Pasting a key in the app IS the whole setup — no
  *   hand-edited env files.
  *
- * Loopback-only on purpose: with HOST=0.0.0.0 the app can be shared on a LAN,
- * and a guest must be able to neither write the host's .env nor probe which
- * keys exist. Prod builds never register this middleware (apply: 'serve'), so
- * the panel's status fetch fails and the client removes the whole surface.
+ * Loopback-only on purpose: the dev server binds 127.0.0.1 and refuses a
+ * 0.0.0.0 or other non-loopback host, so a guest cannot write the host's
+ * .env or probe which keys exist. Prod builds never register this middleware
+ * (apply: 'serve'), so the panel's status fetch fails and the client removes
+ * the whole surface.
  */
 function keySetupEndpoint() {
   const respond = (res, statusCode, payload) => {
@@ -7721,6 +7668,39 @@ function keySetupEndpoint() {
   };
 }
 
+const LOOPBACK_BIND_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
+
+/**
+ * True only for an explicit loopback bind. `true`, `0.0.0.0`, and `::` mean
+ * every interface and are rejected.
+ * @param {unknown} host
+ * @returns {boolean}
+ */
+export function devServerBindIsLoopback(host) {
+  return host !== true && LOOPBACK_BIND_HOSTS.has(host);
+}
+
+/**
+ * Refuse to boot a dev or preview server that is not bound to loopback.
+ * CLI `--host` is applied before this hook, so it covers that override too.
+ * @returns {import('vite').Plugin}
+ */
+function loopbackOnlyServer() {
+  const assertLoopback = (host, label) => {
+    if (devServerBindIsLoopback(host)) return;
+    throw new Error(`${label} refused host ${JSON.stringify(host)}. Bind is 127.0.0.1 only.`);
+  };
+  return {
+    name: 'gev-loopback-only',
+    configureServer(server) {
+      assertLoopback(server.config.server.host, 'Dev server');
+    },
+    configurePreviewServer(server) {
+      assertLoopback(server.config.preview?.host ?? server.config.server.host, 'Preview server');
+    },
+  };
+}
+
 /**
  * Main Vite configuration factory.
  *
@@ -7739,6 +7719,7 @@ export default defineConfig(({ mode }) => {
   const localAllowedHosts = ['localhost', '127.0.0.1', '.local'];
   return {
     plugins: [
+      loopbackOnlyServer(),
       cesium(),
       openSkyProxy(),
       celestrakProxy(),
@@ -7762,12 +7743,10 @@ export default defineConfig(({ mode }) => {
       keySetupEndpoint(),
     ],
     server: {
-      host: env.HOST || 'localhost',
+      // Ignore HOST. 0.0.0.0 and other non-loopback values must not bind.
+      host: '127.0.0.1',
       port: parseInt(env.PORT, 10) || 4173,
-      // When binding to all interfaces, allow any host; otherwise restrict to local names
-      allowedHosts: (env.HOST === '0.0.0.0' || env.HOST === '::')
-        ? true
-        : localAllowedHosts,
+      allowedHosts: localAllowedHosts,
       fs: {
         // Pinokio keeps optional credentials in this ignored local file.
         deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/ENVIRONMENT'],
@@ -7783,6 +7762,11 @@ export default defineConfig(({ mode }) => {
         'X-Frame-Options': 'DENY',
         'Content-Security-Policy': "frame-ancestors 'none'",
       },
+    },
+    preview: {
+      host: '127.0.0.1',
+      port: parseInt(env.PORT, 10) || 4173,
+      allowedHosts: localAllowedHosts,
     },
     // Expose selected API keys to the browser via import.meta.env.*
     define: {

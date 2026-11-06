@@ -46,9 +46,11 @@ Flight transponders, ship beacons, orbital elements, seismographs, and public ca
 
 > Half the magic is that it looks like a forbidden cockpit. The other half is that every line of code is inspectable.
 
-Most feeds are live or regularly refreshed. Traffic is simulated along real
-roads using aggregate location data. CCTV camera poses and rocket launch
-trajectories are coarse estimates.
+Most feeds are live or regularly refreshed. Street traffic is real TomTom flow
+when a key is configured, and unavailable without one — the built-in vehicle
+simulation is disabled. CCTV camera poses and rocket launch trajectories are
+coarse estimates of real published sources, and a camera with no live frame
+shows that it has no feed.
 
 Start with the included data sources, then add your own. Each layer is a separate module.
 
@@ -118,7 +120,7 @@ npm run doctor
 npm run dev
 ```
 
-Open **`http://localhost:4173`**. Choose **Live Contacts**, **Space Missions**,
+Open **`http://127.0.0.1:4173`**. The dev server binds that loopback address only. Choose **Live Contacts**, **Space Missions**,
 **Environmental**, or **Explore Manually** from the first-run panel.
 
 <details>
@@ -166,10 +168,10 @@ Configure issue is resolved. On macOS, the Keychain via
 
 </details>
 
-The server binds to **localhost** on both paths, and Provider Settings answers
+The server binds to **127.0.0.1** on both paths, and Provider Settings answers
 requests only from your machine. Browser-side keys (Google Maps, Cesium ion)
 must be restricted at their providers — [SECURITY.md](SECURITY.md) shows how,
-and it carries the LAN-sharing rules alongside [Keys & Costs](#-api-keys).
+alongside [Keys & Costs](#-api-keys).
 
 ---
 
@@ -262,7 +264,7 @@ Twenty-eight tools, four jobs — the commands below come straight from the prod
 
 ## 🛰️ What's on the Globe
 
-Thirteen layers and map sources. **Eleven have a keyless path.** Some offer additional capabilities with a provider key. (🟢 no key · 🟡 free key · 🔴 metered.)
+Thirteen layers and map sources. **Ten have a keyless path.** Traffic, vessels, and fires stay off until their provider key is present. (🟢 no key · 🟡 free key · 🔴 metered.)
 
 | Layer | What you get | Source | Auth |
 |-------|--------------|--------|------|
@@ -272,7 +274,7 @@ Thirteen layers and map sources. **Eleven have a keyless path.** Some offer addi
 | 🚢 **Live Vessels** | Thousands of ships worldwide | AISStream | 🟡 |
 | 🛰️ **Satellites** | 838-object catalog, color-coded by class with a live legend — the **DENSE** chip drops in the whole Starlink shell | CelesTrak | 🟢 |
 | 🌍 **Earthquakes** | Global seismic activity, last 24h | USGS | 🟢 |
-| 🚗 **Traffic** | Simulated vehicles on OSM roads. With TomTom, live flow speeds drive the simulation and congestion colors below ~8 km; individual vehicle positions are not live observations | TomTom + OSM | 🟢 simulation · 🟡 live flow speeds |
+| 🚗 **Traffic** | Unavailable without a TomTom key. With a key, flow-matched roads show TomTom congestion below ~8 km. Roads without a flow match draw nothing. Dots are a visualization of flow segments, not reported vehicle positions | TomTom + OSM | 🟡 |
 | 📹 **CCTV Mesh** | ~800 public cameras projected *into* the 3D space — Austin · California (Caltrans) · London (TfL). Positions are published; poses are estimated priors **you calibrate by dragging a gizmo on the camera itself** | City APIs | 🟢 |
 | 📻 **Radio** | Geolocated world radio with an **analog tuner** — drag the needle across up to 750 stations and the globe flies to each broadcaster | Radio Browser / broadcasters | 🟢 |
 | 🚲 **Bikeshare** | Live station availability | GBFS | 🟢 |
@@ -384,7 +386,7 @@ Six keys. Four have a free tier, and the two 🔴 ones are metered:
 | 🔴 | **OpenAI** | 🎙️ The voice experience + AI HUD summary. The mini model works; the standard model is noticeably smarter. Want Gemini or another provider behind the mic? PRs welcome | [platform.openai.com](https://platform.openai.com) — metered, see costs below |
 | 🟡 | **AISStream** | 🚢 Live global ships | [aisstream.io](https://aisstream.io) — free signup |
 | 🟡 | **NASA FIRMS** | 🔥 Live active fires | [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/map_key/) — free |
-| 🟡 | **TomTom** | 🚦 Live flow speeds and congestion colors for the simulated traffic layer | [developer.tomtom.com](https://developer.tomtom.com) — free tier available |
+| 🟡 | **TomTom** | 🚦 Live flow speeds and congestion colors. Without a key the traffic layer is off; it does not simulate vehicles | [developer.tomtom.com](https://developer.tomtom.com) — free tier available |
 
 ![Diving from city-scale live congestion straight into an intersection's public camera](docs/media/05-traffic-to-cctv.gif)
 
@@ -453,7 +455,7 @@ Everything above is the deliberately cheap baseline — enough to get a real tas
 
 ### 🔒 Sharing an instance
 
-By default nobody else can reach your server — it binds to localhost. To share on your LAN, opt in explicitly (`npm run dev -- --host 0.0.0.0 --port 4173`, or `HOST=0.0.0.0 ./scripts/dev-fresh.sh` on macOS/Linux) — but know that ⚠️ **a LAN-visible server brokers your configured API keys to anyone who can reach it.** Set the per-IP throttles (`GEV_RATELIMIT_OPENAI_PER_MIN`, `GEV_RATELIMIT_GOOGLE_PER_MIN` — see `.env.example`) and, before anything else, **configure provider quotas, usage limits, and billing alerts**: app-level throttles are not billing caps, and a budget alert alone does not stop spending. Full threat model in [SECURITY.md](SECURITY.md).
+The server binds to **127.0.0.1:4173** only. `HOST=0.0.0.0` and other non-loopback hosts are refused, because a reachable dev server brokers configured API keys. Per-IP throttles (`GEV_RATELIMIT_OPENAI_PER_MIN`, `GEV_RATELIMIT_GOOGLE_PER_MIN` — see `.env.example`) are optional local guards, not billing caps. **Configure provider quotas, usage limits, and billing alerts** before adding a metered key. Full threat model in [SECURITY.md](SECURITY.md).
 
 Provider Settings is disabled when the server is shared, so remote users cannot
 access the key-entry panel.

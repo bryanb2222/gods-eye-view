@@ -2528,25 +2528,24 @@ easier to meet (detection is now on more often), but does not create it.
 - Annotation resolver behavior is pinned by `src/annotations/annotationResolver.test.mjs`; re-run that suite before changing place-resolution scoring.
 - Layer input handlers (click + keydown) are detached on disable for flights/military/satellites/AIS vessels.
 - Traffic tile cache is capped and traffic layer supports explicit destroy cleanup.
-- Traffic feed state is honest about simulation. `getStats().mode` is the
-  CONFIGURED source ('live' = a TomTom key is present, 'sim' = keyless), NOT
-  this instant's health — health rides on `error`. Keyless reads FALLBACK with
-  `SIMULATED — add TomTom key for live` in both the sync chip and the panel
-  meta line; an unreachable `/api/tomtom/status` reads
-  `SIMULATED — traffic service unreachable`; a total flow-fetch failure in live
-  mode sets `error` (DEGRADED · `SIMULATED — <reason>`) and zeroes the stale
-  coverage number. `stats.loading` covers outstanding flow work as well as the
-  road fetch, so a failure landing after the 250 ms paint race still ends the
-  shared loading batch as LOAD FAILED. Harnesses must gate on `!stats.error`,
-  never on `mode === 'live'` alone.
-- Traffic runs in `sim` mode (white dots, hardcoded speeds) unless `TOMTOM_API_KEY`
-  is configured (env or Keychain `tomtom-api`/`api-key`), which enables `live` mode:
-  TomTom flow vector tiles via the budget-governed `/api/tomtom` proxy
-  (`.gev-cache/tomtom/`, 120 s TTL, `TOMTOM_DAILY_TILE_BUDGET` default 40k/day),
-  decoded client-side (`flowTiles.js`), matched onto Overpass roads
-  (`flowMatch.js`), and rendered as green/amber/red dot color + speed/density
-  scaling (`trafficFlowStyle.js`); closures spawn no dots; unmatched roads stay
-  white. Road fetch bounds center on the camera look-at point (`trafficBounds.js`).
+- Traffic does not simulate vehicles. `getStats().mode` is the CONFIGURED
+  source ('live' = a TomTom key is present, 'off' = keyless or the status probe
+  failed), NOT this instant's health — health rides on `error`. Keyless reads
+  UNAVAILABLE with `TomTom key required`; an unreachable `/api/tomtom/status`
+  reads `TomTom status unreachable`. A total flow-fetch failure in live mode
+  sets `error` (DEGRADED · `<reason>`) and draws no replacement vehicles.
+  `stats.loading` covers outstanding flow work as well as the road fetch, so a
+  failure landing after the 250 ms paint race still ends the shared loading
+  batch as LOAD FAILED. Harnesses must gate on `!stats.error`, never on
+  `mode === 'live'` alone.
+- Traffic stays off unless `TOMTOM_API_KEY` is configured (env or Keychain
+  `tomtom-api`/`api-key`), which enables `live` mode: TomTom flow vector tiles
+  via the budget-governed `/api/tomtom` proxy (`.gev-cache/tomtom/`, 120 s TTL,
+  `TOMTOM_DAILY_TILE_BUDGET` default 40k/day), decoded client-side
+  (`flowTiles.js`), matched onto Overpass roads (`flowMatch.js`). Only matched
+  roads render, as green/amber/red dot color + speed/density
+  scaling (`trafficFlowStyle.js`); closures and unmatched roads spawn no dots.
+  Road fetch bounds center on the camera look-at point (`trafficBounds.js`).
 - Development captures opened with `?trafficDebug=1` mint an interaction anchor
   from the exact `camera.changed` event that arms each debounced load, then emit
   scheduling-correlated User Timing entries for production `response.json`, road

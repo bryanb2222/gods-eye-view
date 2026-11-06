@@ -33,11 +33,11 @@
   ],
   "scripts": {
     "doctor": "node scripts/setup-doctor.mjs",
-    "dev": "vite",
+    "dev": "vite --host 127.0.0.1 --port 4173",
     "dev:secure": "./scripts/dev-secure.sh",
     "opensky:import": "./scripts/opensky-import-client.sh",
     "build": "vite build",
-    "preview": "vite preview",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
     "test": "node scripts/run-unit-tests.mjs",
     "test:track": "node scripts/track-regression.mjs",
     "qa:map-source-tray": "node scripts/qa-map-source-tray.mjs"
@@ -56,5 +56,8 @@
     "vite": "^6.0.0",
     "vite-plugin-cesium": "^1.2.23",
     "ws": "^8.21.0"
+  },
+  "overrides": {
+    "dompurify": "3.4.17"
   }
 }
