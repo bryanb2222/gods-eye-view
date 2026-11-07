@@ -10,10 +10,9 @@
  * the local tangent plane (0 deg = north, 90 deg = east).
  *
  * Click-to-track: clicking a billboard creates a tracked Entity whose
- * position is driven by a dead-reckoning CallbackProperty.  Between API
- * refreshes (every ~10-30 s) the aircraft advances smoothly using ENU frame
- * math.  When a new API fix arrives, a 1-second lerp blends the current
- * dead-reckoned position into the corrected fix to avoid visual snapping.
+ * position comes from reported fixes. Between two reported fixes the icon
+ * interpolates that segment. Outside that bracket it holds the nearest
+ * reported position and does not coast on speed and track.
  *
  * Press Escape or click empty space to deselect a tracked flight — the camera
  * is released IN PLACE (no flyTo), so the user keeps the context they were
@@ -55,8 +54,8 @@ import {
 } from './trackedCamera.js';
 import {
   courseBetweenCartesians, limitCourseStep, turnRateFromFixHistory, arcOffsetEnu,
-  lerpAngleDeg, speedRamp, courseSlewCapDps, displayedKinematics, staleCoastLimitSeconds,
-  liftRepeatedGroundFix, synthesizeForwardKinematicsFix, corridorPathLatLon,
+  lerpAngleDeg, speedRamp, courseSlewCapDps, displayedKinematics,
+  liftRepeatedGroundFix, corridorPathLatLon,
   COURSE_HOLD_SPEED_MPS,
 } from './motionModel.js';
 import { routePlausible } from './routePlausible.js';
@@ -1113,89 +1112,17 @@ function _deadReckon(icao24, result) {
     return null;
   }
 
-  const out = result || new Cesium.Cartesian3();
-  // Render one poll interval behind real time so we interpolate between
-  // two KNOWN fixes whenever possible (see RENDER_DELAY_SEC rationale).
-  const renderTime = Cesium.JulianDate.addSeconds(
-    Cesium.JulianDate.now(), -RENDER_DELAY_SEC, _scratchRenderTime
-  );
-
-  // Bracketing pair: interpolate — no extrapolation error, no snap-back.
-  for (let i = history.length - 1; i >= 1; i--) {
-    const a = history[i - 1];
-    const b = history[i];
-    if (
-      Cesium.JulianDate.lessThanOrEquals(a.time, renderTime) &&
-      Cesium.JulianDate.lessThanOrEquals(renderTime, b.time)
-    ) {
-      const span = Cesium.JulianDate.secondsDifference(b.time, a.time);
-      const t = span > 0
-        ? Cesium.JulianDate.secondsDifference(renderTime, a.time) / span
-        : 1.0;
-      // Course of the DISPLAYED motion. The chord is only trustworthy when the
-      // segment covers real ground (at hover its direction is GPS jitter; on a
-      // slow tight turn it STEPS the whole per-segment turn at each boundary),
-      // so it is blended against the reported per-fix track by displayed
-      // ground speed — and the track is TIME-INTERPOLATED between the fixes so
-      // a slow turner's nose advances continuously through the segment instead
-      // of snapping once per poll. Helicopters always use the reported track
-      // (rotorcraft chords are noise-dominated at their typical speeds).
-      const chordLenM = Cesium.Cartesian3.distance(a.position, b.position);
-      const segSpeed = span > 0 ? chordLenM / span : ((info && info.velocity) || 0);
-      const fallbackTrack = (info && info.true_track) || 0;
-      const trackFrom = Number.isFinite(a.track) ? a.track : fallbackTrack;
-      const trackTo = Number.isFinite(b.track) ? b.track : trackFrom;
-      const trackCourse = lerpAngleDeg(trackFrom, trackTo, t);
-      const w = (info && info.klass === 'helicopter') ? 0 : speedRamp(segSpeed);
-      const chordCourse = w > 0 ? courseBetweenCartesians(a.position, b.position) : null;
-      _drCourseDeg = chordCourse != null ? lerpAngleDeg(trackCourse, chordCourse, w) : trackCourse;
-      _drSpeedMps = segSpeed;
-      _drCourseHold = segSpeed < COURSE_HOLD_SPEED_MPS;
-      _drExtrapolating = false;
-      return Cesium.Cartesian3.lerp(a.position, b.position, t, out);
-    }
-  }
-
   const newest = history[history.length - 1];
-  const elapsedSec = Cesium.JulianDate.secondsDifference(renderTime, newest.time);
-  if (elapsedSec <= 0) {
-    // Warm-up: renderTime predates ALL history (freshly seen / just-started-tracking
-    // aircraft, before RENDER_DELAY_SEC of history has accumulated, so no bracketing
-    // pair exists yet). Render at the DELAYED renderTime — preserving the 30s-behind
-    // invariant — by extrapolating the OLDEST fix BACKWARD to renderTime. As history
-    // fills, renderTime advances toward the first fix and the icon glides FORWARD into
-    // the bracketing interpolation above with NO freeze and NO backward snap. (Holding
-    // the oldest fix froze the icon; extrapolating the NEWEST fix to wall-clock now made
-    // the icon jump back ~one poll interval the instant interpolation took over.)
-    const oldest = history[0];
-    const lookbackSec = Cesium.JulianDate.secondsDifference(oldest.time, renderTime); // ≥ 0
-    return _extrapolateFix(oldest, info, -Math.min(lookbackSec, 60), out, (info && info.turnRateDps) || 0);
-  }
-
-  // Newest POSITION is older than renderTime. OpenSky can still be receiving
-  // fresh contact/kinematic messages for that aircraft; freezing at a hard
-  // 60 s-after-position boundary produced the visible stop → catch-up → stop
-  // cadence. Coast through the latest real contact plus a bounded grace
-  // window, with an absolute cap so a stale cached feed cannot drift forever.
-  const coastLimitSec = staleCoastLimitSeconds({
-    // `epochMs` is captured once when the poll is normalized. Avoid allocating
-    // a Date per aircraft on every 12 Hz fleet tick.
-    fixEpochMs: Number.isFinite(newest.epochMs)
-      ? newest.epochMs
-      : Cesium.JulianDate.toDate(newest.time).getTime(),
-    lastContactEpochMs: info?.lastContactEpochMs,
-    // Permit one minute of contact grace but cap any cached-feed drift at
-    // five minutes. Source backoff is exposed separately as a STALE cue.
-    minimumSec: 60,
-    maximumSec: 300,
-  });
-  return _extrapolateFix(
-    newest,
-    info,
-    Math.min(elapsedSec, coastLimitSec),
-    out,
-    (info && info.turnRateDps) || 0,
-  );
+  const out = result || new Cesium.Cartesian3();
+  // The icon is the latest reported coordinate. Do not invent a point between
+  // fixes or coast past the last report.
+  const heldSpeed = Number.isFinite(newest.velocity) ? newest.velocity : ((info && info.velocity) || 0);
+  const heldTrack = Number.isFinite(newest.track) ? newest.track : ((info && info.true_track) || 0);
+  _drSpeedMps = heldSpeed;
+  _drCourseDeg = heldTrack;
+  _drCourseHold = heldSpeed < COURSE_HOLD_SPEED_MPS;
+  _drExtrapolating = false;
+  return Cesium.Cartesian3.clone(newest.position, out);
 }
 
 /**
@@ -4442,24 +4369,11 @@ const flightsLayer = {
           if (!modelOwnsGroundVisual) {
             liftRepeatedGroundFix(newest, position, meta.onGround);
           }
-          // Apply fresh kinematics only from a forward synthetic fix. Mutating
-          // the historical fix reprojects the entire stale interval and snaps
-          // the rendered aircraft when course or speed changes late.
-          const kinematicsChanged = newest.velocity !== meta.velocity
-            || newest.track !== meta.true_track;
-          if (kinematicsChanged) {
-            const synthetic = synthesizeForwardKinematicsFix(newest, {
-              epochMs: Date.now(),
-              velocity: meta.velocity,
-              track: meta.true_track,
-              turnRateDps: meta.turnRateDps,
-            });
-            if (synthetic) {
-              history.push(synthetic);
-              if (history.length > POSITION_HISTORY_LIMIT) history.shift();
-              meta.turnRateDps = turnRateFromFixHistory(history);
-              if (isTracked) _appendTrailFix(synthetic.position.clone());
-            }
+          // A repeated position is still that reported position. Keep the latest
+          // reported speed and track for the icon, and do not invent a fix.
+          if (newest.velocity !== meta.velocity || newest.track !== meta.true_track) {
+            newest.velocity = meta.velocity;
+            newest.track = meta.true_track;
           }
         }
 

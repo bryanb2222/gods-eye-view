@@ -46,11 +46,15 @@ Flight transponders, ship beacons, orbital elements, seismographs, and public ca
 
 > Half the magic is that it looks like a forbidden cockpit. The other half is that every line of code is inspectable.
 
-Most feeds are live or regularly refreshed. Street traffic is real TomTom flow
-when a key is configured, and unavailable without one — the built-in vehicle
-simulation is disabled. CCTV camera poses and rocket launch trajectories are
-coarse estimates of real published sources, and a camera with no live frame
-shows that it has no feed.
+Most feeds are live or regularly refreshed. A fresh visit opens the keyless
+Esri map and does not turn layers on. Aircraft icons, when that layer is on,
+sit on the latest reported coordinate and are not placed between reports.
+Satellite names can load, but propagated positions and orbit rings stay off.
+A request for the next ISS pass is answered unavailable: no predicted rise
+time, duration, elevation, or direction.
+Launch markers are pad coordinates, not flown trajectories. Street traffic
+does not draw vehicles. Public cameras use published locations; seed cameras
+and guessed view cones do not draw.
 
 Start with the included data sources, then add your own. Each layer is a separate module.
 
@@ -248,7 +252,7 @@ Twenty-eight tools, four jobs — the commands below come straight from the prod
 ![A spoken distance measurement spanning an airport, inspected from orbit](docs/media/04-airport-distance.gif)
 
 **🔎 Interrogate it** — analyst queries against the live layers:
-> 🗣️ *"How many flights are over Texas right now?"* · *"Which ships are headed to Oakland?"* · *"What is the biggest fire near Los Angeles?"* · *"Is anything flying above forty thousand feet?"* · *"When does the ISS pass over next?"*
+> 🗣️ *"How many flights are over Texas right now?"* · *"Which ships are headed to Oakland?"* · *"What is the biggest fire near Los Angeles?"* · *"Is anything flying above forty thousand feet?"*
 
 **🎛️ Operate it** — the whole console, hands-free:
 > 🗣️ *"Switch to night vision and turn on the flights layer."* · *"Turn on the camera viewsheds."* · *"Play a news radio station near Austin."* · *"Track that plane."* → *"Enter Cockpit."*
@@ -264,7 +268,7 @@ Twenty-eight tools, four jobs — the commands below come straight from the prod
 
 ## 🛰️ What's on the Globe
 
-Thirteen layers and map sources. **Ten have a keyless path.** Traffic, vessels, and fires stay off until their provider key is present. (🟢 no key · 🟡 free key · 🔴 metered.)
+Thirteen layers and map sources. **Ten have a keyless path.** Street traffic stays off because this build has no vehicle-position feed. Vessels and fires stay off until their provider key is present. (🟢 no key · 🟡 free key · 🔴 metered.)
 
 | Layer | What you get | Source | Auth |
 |-------|--------------|--------|------|
@@ -274,7 +278,7 @@ Thirteen layers and map sources. **Ten have a keyless path.** Traffic, vessels, 
 | 🚢 **Live Vessels** | Thousands of ships worldwide | AISStream | 🟡 |
 | 🛰️ **Satellites** | 838-object catalog, color-coded by class with a live legend — the **DENSE** chip drops in the whole Starlink shell | CelesTrak | 🟢 |
 | 🌍 **Earthquakes** | Global seismic activity, last 24h | USGS | 🟢 |
-| 🚗 **Traffic** | Unavailable without a TomTom key. With a key, flow-matched roads show TomTom congestion below ~8 km. Roads without a flow match draw nothing. Dots are a visualization of flow segments, not reported vehicle positions | TomTom + OSM | 🟡 |
+| 🚗 **Traffic** | Unavailable. This build does not draw vehicles from TomTom flow or from hardcoded speeds | — | off |
 | 📹 **CCTV Mesh** | ~800 public cameras projected *into* the 3D space — Austin · California (Caltrans) · London (TfL). Positions are published; poses are estimated priors **you calibrate by dragging a gizmo on the camera itself** | City APIs | 🟢 |
 | 📻 **Radio** | Geolocated world radio with an **analog tuner** — drag the needle across up to 750 stations and the globe flies to each broadcaster | Radio Browser / broadcasters | 🟢 |
 | 🚲 **Bikeshare** | Live station availability | GBFS | 🟢 |
@@ -386,7 +390,7 @@ Six keys. Four have a free tier, and the two 🔴 ones are metered:
 | 🔴 | **OpenAI** | 🎙️ The voice experience + AI HUD summary. The mini model works; the standard model is noticeably smarter. Want Gemini or another provider behind the mic? PRs welcome | [platform.openai.com](https://platform.openai.com) — metered, see costs below |
 | 🟡 | **AISStream** | 🚢 Live global ships | [aisstream.io](https://aisstream.io) — free signup |
 | 🟡 | **NASA FIRMS** | 🔥 Live active fires | [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/map_key/) — free |
-| 🟡 | **TomTom** | 🚦 Live flow speeds and congestion colors. Without a key the traffic layer is off; it does not simulate vehicles | [developer.tomtom.com](https://developer.tomtom.com) — free tier available |
+| 🟡 | **TomTom** | Not used to place vehicles. Aggregate flow is not a vehicle-position observation | [developer.tomtom.com](https://developer.tomtom.com) |
 
 ![Diving from city-scale live congestion straight into an intersection's public camera](docs/media/05-traffic-to-cctv.gif)
 

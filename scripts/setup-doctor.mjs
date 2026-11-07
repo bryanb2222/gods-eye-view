@@ -144,9 +144,7 @@ export function buildCapabilitySummary(credentials) {
     voice: configured('OPENAI_API_KEY') ? 'available' : 'off until an OpenAI key is added',
     vessels: configured('AISSTREAM_API_KEY') ? 'live AISStream feed' : 'off until an AISStream key is added',
     fires: configured('FIRMS_MAP_KEY') ? 'live NASA FIRMS feed' : 'off until a FIRMS key is added',
-    traffic: configured('TOMTOM_API_KEY')
-      ? 'live TomTom flow'
-      : 'off until a TomTom key is added — built-in simulation disabled',
+    traffic: 'off — no vehicle-position feed; congestion flow is not drawn as vehicles',
     missions: configured('LL2_API_TOKEN')
       ? 'Launch Library 2 token allowance'
       : 'Launch Library 2 public access',

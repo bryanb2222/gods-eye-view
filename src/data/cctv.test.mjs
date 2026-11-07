@@ -42,6 +42,7 @@ import cctvLayer, {
   readCalibrationStoreV2,
   writeCalibrationStoreV2,
   deriveCalBadge,
+  cctvPoseMayDraw,
   surfaceRegimeKey,
   calibrationPatchMovesAnchor,
   cctvGeometryDrainPacing,
@@ -130,6 +131,7 @@ const UNCLAMPED_CAMERA = {
   fovDeg: 56,
   rangeM: 210,
   mountHeightM: 100,
+  poseObserved: true,
 };
 const UNCLAMPED_GROUND = 0;
 
@@ -1186,6 +1188,14 @@ test('deriveCalBadge: RAW PRIOR for everything else (all Austin Open Data today)
   const camera = { calSource: null, poseSource: null };
   assert.equal(deriveCalBadge(camera), 'raw-prior');
   assert.equal(deriveCalBadge({}), 'raw-prior');
+});
+
+test('view cones draw only for a published pose or a saved calibration', () => {
+  assert.equal(cctvPoseMayDraw(null), false);
+  assert.equal(cctvPoseMayDraw({ headingDeg: 10, fovDeg: 40, rangeM: 200 }), false);
+  assert.equal(cctvPoseMayDraw({ poseObserved: true }), true);
+  assert.equal(cctvPoseMayDraw({ calSource: 'manual' }), true);
+  assert.equal(cctvPoseMayDraw({ poseSource: 'curated', poseObserved: false }), false);
 });
 
 // ---------------------------------------------------------------------------

@@ -603,6 +603,19 @@ function headingFromId(id) {
 }
 
 /**
+ * A view cone may be drawn only from a published heading, field of view, and
+ * range, or from a calibration a person saved. Hashed headings, seed offsets,
+ * and default pitch/range are not observations.
+ * @param {Object|null|undefined} camera
+ * @returns {boolean}
+ */
+export function cctvPoseMayDraw(camera) {
+  if (!camera) return false;
+  if (camera.calSource === 'manual') return true;
+  return camera.poseObserved === true;
+}
+
+/**
  * Rounds a value to the nearest multiple of `step`.
  * @param {number} value
  * @param {number} [step=0.1]
@@ -1126,18 +1139,22 @@ function buildCatalogFromSources(rawSources) {
     const cityId = String(source.cityId || '').trim() || cityIdByName(source.city) || seed?.cityId || '';
     const city = cityId && CITY_POIS[cityId] ? CITY_POIS[cityId] : null;
 
-    const lat = safeNumber(source.lat, seed?.lat ?? NaN);
-    const lon = safeNumber(source.lon, seed?.lon ?? NaN);
+    if (String(source.sourceKind || source.kind || '').toLowerCase() === 'seed') continue;
+    const lat = safeNumber(source.lat, NaN);
+    const lon = safeNumber(source.lon, NaN);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
 
-    const sourceHeading = safeNumber(source.headingDeg, NaN);
+    const publishedHeading = safeNumber(source.headingDeg, NaN);
+    const publishedFov = safeNumber(source.fovDeg, NaN);
+    const publishedRange = safeNumber(source.rangeM, NaN);
+    const poseObserved = Number.isFinite(publishedHeading)
+      && Number.isFinite(publishedFov)
+      && Number.isFinite(publishedRange);
     const headingDeg = normalizeHeading(
-      Number.isFinite(sourceHeading)
-        ? sourceHeading
-        : (seed?.headingDeg ?? headingFromId(id))
+      Number.isFinite(publishedHeading) ? publishedHeading : 0,
     );
-    const fovDeg = clamp(safeNumber(source.fovDeg, seed?.fovDeg ?? 74), 20, 125);
-    const rangeM = clamp(safeNumber(source.rangeM, seed?.rangeM ?? 700), 220, 2200);
+    const fovDeg = clamp(Number.isFinite(publishedFov) ? publishedFov : 74, 20, 125);
+    const rangeM = clamp(Number.isFinite(publishedRange) ? publishedRange : 700, 220, 2200);
     const mountHeightM = clamp(safeNumber(source.mountHeightM, seed?.mountHeightM ?? 24), 6, 120);
     const pitchDeg = clamp(safeNumber(source.pitchDeg, seed?.pitchDeg ?? -17), -55, -2);
     const groundElevationM = safeNumber(source.groundElevationM, city?.groundElevation ?? seed?.groundElevationM ?? 0);
@@ -1169,6 +1186,7 @@ function buildCatalogFromSources(rawSources) {
       pitchDeg,
       license: String(source.license || source.licenseNote || ''),
       poseSource,
+      poseObserved,
     };
     ensureCameraPose(camera);
     catalog.push(camera);
@@ -1669,6 +1687,7 @@ export function _updateCctvProjectionPlaneForTest(record) {
  * @returns {Object|null} Projection runtime, or null if no viewer.
  */
 function createProjectionRuntime(record) {
+  if (!cctvPoseMayDraw(record?.camera)) return null;
   if (!_viewer) return null;
   const canvas = document.createElement('canvas');
   canvas.width = PROJECTION_CANVAS_WIDTH;
@@ -3801,6 +3820,7 @@ export function cctvEmptyClickDeselects(picked, {
  * @returns {Cesium.Entity[]} Array of five coverage entities.
  */
 function buildCoverageEntities(record) {
+  if (!cctvPoseMayDraw(record?.camera)) return [];
   const { camera } = record;
   // Prefer the record's already-refined geometry. Lazy creation commonly
   // happens after the staggered ground pass; recomputing from the catalog
@@ -4166,7 +4186,7 @@ const cctvLayer = {
   id: 'cctv',
   name: 'CCTV',
   icon: '📹',
-  source: 'CCTV + Street View fallback',
+  source: 'Public CCTV catalogs',
   updateInterval: DEFAULT_UPDATE_INTERVAL_MS,
 
   /**
@@ -4190,8 +4210,7 @@ const cctvLayer = {
     registerSpriteCollection('cctv', _billboards);
 
     const sources = await loadCameraSources();
-    const catalogFromSources = buildCatalogFromSources(sources);
-    const catalog = catalogFromSources.length ? catalogFromSources : seedCatalog();
+    const catalog = buildCatalogFromSources(sources);
 
     // Viewshed color identity (design §3a): golden-angle hue over the
     // id-SORTED catalog index — deterministic across sessions for a stable
@@ -4297,6 +4316,7 @@ const cctvLayer = {
     }
 
     _count = _records.length;
+    _lastError = _records.length ? null : 'No published camera catalog';
     if (_records.length > 0) {
       // Projection runtime + first frame fetch are deferred to enable() so
       // initializing the catalog stays render-cheap.
@@ -4404,7 +4424,8 @@ const cctvLayer = {
    */
   enable() {
     _enabled = true;
-    _lastUpdate = Date.now();
+    if (_count > 0) _lastUpdate = Date.now();
+    else _lastError = _lastError || 'No published camera catalog';
     // Pick-ownership (H2): camera billboards use the camera id directly;
     // coverage polyline entities use `cctv-<cameraId>-<role>` entity ids.
     registerPickOwner('cctv', (pickedId) => {

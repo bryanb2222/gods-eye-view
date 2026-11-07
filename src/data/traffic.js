@@ -645,13 +645,10 @@ function estimateRoadLengthDeg(coords) {
  * @returns {number} Ideal dot count (minimum 1).
  */
 function computeDotCount(road, altitude) {
-  // Live flow: closed roads carry zero traffic; congestion packs more dots.
-  // `road.flow` is only ever set in live mode, so the keyless path is
-  // untouched (flow stays undefined → multiplier 1, identical output).
-  const flow = _liveMode ? road.flow : null;
-  // No live flow match means no vehicles. Keyless and uncovered roads used to
-  // invent white dots at hardcoded speeds; that simulation is disabled.
-  if (!_liveMode || !flow || flow.closure) return 0;
+  // TomTom flow and hardcoded speeds are not vehicle observations.
+  void road;
+  void altitude;
+  return 0;
 
   const lengthM = estimateRoadLengthDeg(road.coords);
 
@@ -758,10 +755,10 @@ function allocateRoadDotBudgets(roads, altitude, dotCap) {
  *   to `computeDotCount` when null.
  */
 function spawnDotsForRoad(road, altitude, budgetCount = null) {
-  // Dots exist only for a real TomTom flow match. Keyless roads and roads
-  // the flow feed did not cover spawn nothing.
-  const flow = _liveMode ? road.flow : null;
-  if (!_liveMode || !flow || flow.closure) return;
+  void road;
+  void altitude;
+  void budgetCount;
+  return;
 
   const count = Number.isFinite(budgetCount)
     ? Math.max(0, Math.floor(budgetCount))
@@ -1245,26 +1242,15 @@ export function trafficFeedPresentation({
   coveragePct = 0,
   statusUnavailable = false,
 } = {}) {
-  if (!liveMode) {
-    const error = statusUnavailable
-      ? 'TomTom status unreachable'
-      : 'TomTom key required';
-    const loadingLabel = statusUnavailable
-      ? 'UNAVAILABLE — traffic service unreachable'
-      : 'UNAVAILABLE — add a TomTom key for live flow';
-    return { mode: 'off', error, loadingLabel };
-  }
-  if (flowError) {
-    // The manager's error branch renders `error` and drops `loadingLabel`,
-    // so both fields carry the same reason. No simulated vehicles replace it.
-    return { mode: 'live', error: flowError, loadingLabel: flowError };
-  }
+  void liveMode;
+  void fetching;
+  void flowError;
+  void coveragePct;
+  void statusUnavailable;
   return {
-    mode: 'live',
-    error: null,
-    loadingLabel: fetching
-      ? 'syncing LIVE traffic flow'
-      : `LIVE · TomTom flow · ${coveragePct}% cov`,
+    mode: 'off',
+    error: 'No vehicle-position feed',
+    loadingLabel: 'UNAVAILABLE — congestion flow is not vehicle positions',
   };
 }
 
@@ -1498,6 +1484,9 @@ function removeHeatLines() {
  */
 function rebuildHeatLines(roads) {
   removeHeatLines();
+  _heatLineCount = 0;
+  void roads;
+  return;
   if (!_viewer || !_liveMode || !heatlineOn()) return;
   if (_heatSupported === null) {
     _heatSupported = Cesium.GroundPolylinePrimitive.isSupported(_viewer.scene);
@@ -2026,21 +2015,21 @@ const _loadRoadsForBounds = TRAFFIC_TIMING_ENABLED
  * @returns {Promise<void>}
  */
 async function loadRoadsForBounds(bounds, altitude, trace = null) {
-  // Increment generation to invalidate any in-flight responses from prior calls
-  const generation = ++_loadGeneration;
+  // Vehicle dots are not observations. Do not fetch roads to animate them.
+  ++_loadGeneration;
   cancelActiveFetch();
-  await ensureFlowStatus();
-  if (!_enabled || generation !== _loadGeneration) return;
-  if (!_liveMode) {
-    clearDots();
-    _roads = [];
-    _count = 0;
-    _lastUpdate = null;
-    _flowCoveragePct = 0;
-    _flowError = null;
-    _fetching = false;
-    return;
-  }
+  clearDots();
+  _roads = [];
+  _count = 0;
+  _lastUpdate = null;
+  _flowCoveragePct = 0;
+  _flowError = null;
+  _fetching = false;
+  _liveMode = false;
+  void bounds;
+  void altitude;
+  void trace;
+  return;
   const clamped = clampBounds(bounds);
 
   // Cache key: fixed-precision bounding-box string for deterministic lookups

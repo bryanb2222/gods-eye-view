@@ -126,8 +126,8 @@ const MISSION_GLOBE_VIEW_RANGE_M = 5000000;
 const MISSION_FOCUS_RANGE_M = 12000;
 const SATELLITE_STANDALONE_DEFAULTS = {
   catalog: 'core',
-  showPoints: true,
-  showOrbits: true,
+  showPoints: false,
+  showOrbits: false,
 };
 
 /**
@@ -2841,11 +2841,10 @@ function addLaunchEntity(launch, activeTleText = _activeTleText) {
       { launchTime: launch.launchTime },
     )
     : null);
-  const orbitPath = !orbitAllowed
-    ? null
-    : satelliteTrack?.orbitPath?.length > 1
-      ? satelliteTrack.orbitPath
-      : approximateOrbitPath(launch);
+  // Pad coordinates and any trajectory points supplied by Launch Library are
+  // drawn below. Propagated TLE rings, planar orbit guesses, and reconstructed
+  // climbs are estimates, so they are not drawn.
+  const orbitPath = null;
   launch.recoveryStages.forEach((stage) => {
     stage.endpoint = landingEndpoint(stage, launch, orbitPath?.[0] || null);
   });
@@ -2883,34 +2882,9 @@ function addLaunchEntity(launch, activeTleText = _activeTleText) {
       noradId: satelliteTrack?.noradId || '',
     },
   });
-  const points = launch.trajectory
-    .filter((point) => Number.isFinite(Number(point.latitude)) && Number.isFinite(Number(point.longitude)))
-    .map((point) => ({
-      stage: String(point.stage || point.stage_name || point.phase || point.stageName || 'trajectory'),
-      position: Cesium.Cartesian3.fromDegrees(Number(point.longitude), Number(point.latitude), Number(point.altitude || 0)),
-    }));
-  if (points.length > 1) {
-    const segments = [];
-    points.forEach((point) => {
-      const previous = segments.at(-1);
-      if (!previous || previous.stage !== point.stage) segments.push({ stage: point.stage, positions: [] });
-      segments.at(-1).positions.push(point.position);
-    });
-    segments.forEach((segment, index) => {
-      if (segment.positions.length < 2) return;
-      _dataSource.entities.add({
-        id: `rocket-trajectory:${launch.id}:${index}`,
-        polyline: {
-          positions: surfaceSafePath(segment.positions),
-          width: 2,
-          material: Cesium.Color.fromCssColorString(TRAJECTORY_STAGE_COLORS[index % TRAJECTORY_STAGE_COLORS.length]).withAlpha(0.8),
-          clampToGround: false,
-          arcType: Cesium.ArcType.NONE,
-        },
-        properties: { launchId: launch.id, stage: segment.stage, source: launch.source },
-      });
-    });
-  }
+  // The pad marker above is the reported site. Trajectory samples, planned
+  // paths, and reconstructed climbs are not drawn as flight telemetry.
+  const points = [];
   if (orbitPath?.length > 1) {
     const orbitCurrent = satelliteTrack?.current || { longitude: launch.lon, latitude: launch.lat, altitude: 0 };
     const orbitPeriodSec = satelliteTrack?.periodSec || estimatedOrbitPeriodSeconds(orbitPath);

@@ -306,7 +306,7 @@ else
   echo "Startup map: Esri World Imagery with keyless terrain (OpenStreetMap fallback)"
 fi
 [[ -n "${CESIUM_ION_TOKEN}" ]] && echo "Cesium ion token: configured — Google 3D, Bing, and world-terrain stacks available" || echo "Cesium ion token: not set"
-[[ -n "${TOMTOM_API_KEY}" ]] && echo "TomTom key (live traffic flow): configured" || echo "TomTom key (live traffic flow): not set — traffic layer unavailable, simulation disabled"
+echo "Street traffic: off — no vehicle-position feed (TomTom congestion is not drawn as vehicles)"
 [[ -n "${FIRMS_MAP_KEY}" ]] && echo "NASA FIRMS key (live fires): configured" || echo "NASA FIRMS key (live fires): not set — fires layer requires a key"
 [[ -n "${LL2_API_TOKEN}" ]] && echo "Launch Library 2 token: configured" || echo "Launch Library 2 token: not set — using public access"
 
