@@ -1112,61 +1112,17 @@ function _deadReckon(icao24, result) {
     return null;
   }
 
-  const out = result || new Cesium.Cartesian3();
-  // Render one poll interval behind real time so we interpolate between
-  // two KNOWN fixes whenever possible (see RENDER_DELAY_SEC rationale).
-  const renderTime = Cesium.JulianDate.addSeconds(
-    Cesium.JulianDate.now(), -RENDER_DELAY_SEC, _scratchRenderTime
-  );
-
-  // Bracketing pair: interpolate — no extrapolation error, no snap-back.
-  for (let i = history.length - 1; i >= 1; i--) {
-    const a = history[i - 1];
-    const b = history[i];
-    if (
-      Cesium.JulianDate.lessThanOrEquals(a.time, renderTime) &&
-      Cesium.JulianDate.lessThanOrEquals(renderTime, b.time)
-    ) {
-      const span = Cesium.JulianDate.secondsDifference(b.time, a.time);
-      const t = span > 0
-        ? Cesium.JulianDate.secondsDifference(renderTime, a.time) / span
-        : 1.0;
-      // Course of the DISPLAYED motion. The chord is only trustworthy when the
-      // segment covers real ground (at hover its direction is GPS jitter; on a
-      // slow tight turn it STEPS the whole per-segment turn at each boundary),
-      // so it is blended against the reported per-fix track by displayed
-      // ground speed — and the track is TIME-INTERPOLATED between the fixes so
-      // a slow turner's nose advances continuously through the segment instead
-      // of snapping once per poll. Helicopters always use the reported track
-      // (rotorcraft chords are noise-dominated at their typical speeds).
-      const chordLenM = Cesium.Cartesian3.distance(a.position, b.position);
-      const segSpeed = span > 0 ? chordLenM / span : ((info && info.velocity) || 0);
-      const fallbackTrack = (info && info.true_track) || 0;
-      const trackFrom = Number.isFinite(a.track) ? a.track : fallbackTrack;
-      const trackTo = Number.isFinite(b.track) ? b.track : trackFrom;
-      const trackCourse = lerpAngleDeg(trackFrom, trackTo, t);
-      const w = (info && info.klass === 'helicopter') ? 0 : speedRamp(segSpeed);
-      const chordCourse = w > 0 ? courseBetweenCartesians(a.position, b.position) : null;
-      _drCourseDeg = chordCourse != null ? lerpAngleDeg(trackCourse, chordCourse, w) : trackCourse;
-      _drSpeedMps = segSpeed;
-      _drCourseHold = segSpeed < COURSE_HOLD_SPEED_MPS;
-      _drExtrapolating = false;
-      return Cesium.Cartesian3.lerp(a.position, b.position, t, out);
-    }
-  }
-
   const newest = history[history.length - 1];
-  const elapsedSec = Cesium.JulianDate.secondsDifference(renderTime, newest.time);
-  // Outside a pair of reported fixes, hold the nearest reported position.
-  // Do not project the aircraft forward or backward from speed and track.
-  const held = elapsedSec <= 0 ? history[0] : newest;
-  const heldSpeed = Number.isFinite(held.velocity) ? held.velocity : ((info && info.velocity) || 0);
-  const heldTrack = Number.isFinite(held.track) ? held.track : ((info && info.true_track) || 0);
+  const out = result || new Cesium.Cartesian3();
+  // The icon is the latest reported coordinate. Do not invent a point between
+  // fixes or coast past the last report.
+  const heldSpeed = Number.isFinite(newest.velocity) ? newest.velocity : ((info && info.velocity) || 0);
+  const heldTrack = Number.isFinite(newest.track) ? newest.track : ((info && info.true_track) || 0);
   _drSpeedMps = heldSpeed;
   _drCourseDeg = heldTrack;
   _drCourseHold = heldSpeed < COURSE_HOLD_SPEED_MPS;
   _drExtrapolating = false;
-  return Cesium.Cartesian3.clone(held.position, out);
+  return Cesium.Cartesian3.clone(newest.position, out);
 }
 
 /**

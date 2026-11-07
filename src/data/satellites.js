@@ -231,7 +231,7 @@ let _clickHandler = null;
 let _trackedEntityChangedRemove = null;
 
 // Runtime params (DataLayerManager.setLayerParams path)
-let _params = { catalog: 'core', showPoints: true, showOrbits: true }; // 'core' | 'dense'
+let _params = { catalog: 'core', showPoints: false, showOrbits: false }; // 'core' | 'dense'
 let _denseIds = [];      // norad ids of dense extras, round-robin order
 let _denseCursor = 0;    // next dense id to re-propagate
 let _denseLoadToken = 0; // invalidates in-flight dense loads on mode flip/reload
@@ -1705,16 +1705,16 @@ const satellitesLayer = {
         if (seen.has(noradId)) continue;
         seen.add(noradId);
 
-        // Store in catalog
+        // Catalog metadata only. Propagated positions are not observations.
         _catalog.set(noradId, {
           name: entry.name,
           satrec,
           group: entry.group,
         });
+        if (!_params.showPoints && !_params.showOrbits) continue;
 
-        // Propagate initial position
         const pos = propagatePosition(satrec, now);
-        if (!pos) continue;
+        if (!pos || !_params.showPoints) continue;
 
         const cartesian = Cesium.Cartesian3.fromDegrees(pos.longitude, pos.latitude, pos.altitude);
 
@@ -1733,8 +1733,7 @@ const satellitesLayer = {
         _points.set(noradId, point);
       }
 
-      // Show ISS orbital path by default
-      if (_catalog.has(ISS_NORAD)) {
+      if (_params.showOrbits && _catalog.has(ISS_NORAD)) {
         _showOrbitPath(ISS_NORAD, POINT_STYLES.iss.color);
         const issPath = _orbitPaths.get(ISS_NORAD);
         if (issPath) issPath.primitive.show = _params.showOrbits;
@@ -2071,13 +2070,12 @@ const satellitesLayer = {
     if (catalogChanged) {
       _params.catalog = catalog;
     }
-    if (params.showPoints !== undefined) {
-      _params.showPoints = params.showPoints !== false;
-      if (_pointCollection) _pointCollection.show = satelliteVisualsVisible(_enabled, _params.showPoints);
-    }
-    if (params.showOrbits !== undefined) {
-      _params.showOrbits = params.showOrbits !== false;
-      for (const path of _orbitPaths.values()) path.primitive.show = satelliteVisualsVisible(_enabled, _params.showOrbits);
+    if (params.showPoints !== undefined || params.showOrbits !== undefined) {
+      // Propagated points and orbit rings are not measured positions.
+      _params.showPoints = false;
+      _params.showOrbits = false;
+      if (_pointCollection) _pointCollection.show = false;
+      for (const path of _orbitPaths.values()) path.primitive.show = false;
       _syncIssOverlay();
     }
     if (catalogChanged && catalog === 'dense') {
@@ -2175,14 +2173,16 @@ const satellitesLayer = {
   },
 
   getStats() {
+    const positionNotice = _params.showPoints ? null : 'Propagated positions are not displayed';
+    const error = _lastError || positionNotice;
     return {
       count: _count,
       lastUpdate: _lastUpdate,
       stale: false,
       status: _lastError === 'CelesTrak unreachable'
         ? 'unavailable'
-        : (_lastError ? 'degraded' : 'nominal'),
-      error: _lastError,
+        : (error ? 'degraded' : 'nominal'),
+      error,
     };
   },
 };

@@ -46,11 +46,13 @@ Flight transponders, ship beacons, orbital elements, seismographs, and public ca
 
 > Half the magic is that it looks like a forbidden cockpit. The other half is that every line of code is inspectable.
 
-Most feeds are live or regularly refreshed. Street traffic does not draw
-vehicles: congestion flow is not a vehicle-position feed. Rocket paths are
-drawn only from trajectory points the source supplied. Aircraft icons hold
-the latest reported position instead of coasting past it. Public cameras are
-shown at published locations; estimated view cones are not drawn.
+Most feeds are live or regularly refreshed. A fresh visit opens the keyless
+Esri map and does not turn layers on. Aircraft icons, when that layer is on,
+sit on the latest reported coordinate and are not placed between reports.
+Satellite names can load, but propagated positions and orbit rings stay off.
+Launch markers are pad coordinates, not flown trajectories. Street traffic
+does not draw vehicles. Public cameras use published locations; seed cameras
+and guessed view cones do not draw.
 
 Start with the included data sources, then add your own. Each layer is a separate module.
 

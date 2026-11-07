@@ -315,8 +315,8 @@ test('restores the complete standalone Satellite style after mission mode', () =
   assert.deepEqual(satelliteParamsAfterSpaceMissions(standalone), standalone);
   assert.deepEqual(satelliteParamsAfterSpaceMissions(null), {
     catalog: 'core',
-    showPoints: true,
-    showOrbits: true,
+    showPoints: false,
+    showOrbits: false,
   });
 });
 
