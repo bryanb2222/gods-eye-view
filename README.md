@@ -46,11 +46,11 @@ Flight transponders, ship beacons, orbital elements, seismographs, and public ca
 
 > Half the magic is that it looks like a forbidden cockpit. The other half is that every line of code is inspectable.
 
-Most feeds are live or regularly refreshed. Street traffic is real TomTom flow
-when a key is configured, and unavailable without one — the built-in vehicle
-simulation is disabled. CCTV camera poses and rocket launch trajectories are
-coarse estimates of real published sources, and a camera with no live frame
-shows that it has no feed.
+Most feeds are live or regularly refreshed. Street traffic does not draw
+vehicles: congestion flow is not a vehicle-position feed. Rocket paths are
+drawn only from trajectory points the source supplied. Aircraft icons hold
+the latest reported position instead of coasting past it. Public cameras are
+shown at published locations; estimated view cones are not drawn.
 
 Start with the included data sources, then add your own. Each layer is a separate module.
 
@@ -264,7 +264,7 @@ Twenty-eight tools, four jobs — the commands below come straight from the prod
 
 ## 🛰️ What's on the Globe
 
-Thirteen layers and map sources. **Ten have a keyless path.** Traffic, vessels, and fires stay off until their provider key is present. (🟢 no key · 🟡 free key · 🔴 metered.)
+Thirteen layers and map sources. **Ten have a keyless path.** Street traffic stays off because this build has no vehicle-position feed. Vessels and fires stay off until their provider key is present. (🟢 no key · 🟡 free key · 🔴 metered.)
 
 | Layer | What you get | Source | Auth |
 |-------|--------------|--------|------|
@@ -274,7 +274,7 @@ Thirteen layers and map sources. **Ten have a keyless path.** Traffic, vessels, 
 | 🚢 **Live Vessels** | Thousands of ships worldwide | AISStream | 🟡 |
 | 🛰️ **Satellites** | 838-object catalog, color-coded by class with a live legend — the **DENSE** chip drops in the whole Starlink shell | CelesTrak | 🟢 |
 | 🌍 **Earthquakes** | Global seismic activity, last 24h | USGS | 🟢 |
-| 🚗 **Traffic** | Unavailable without a TomTom key. With a key, flow-matched roads show TomTom congestion below ~8 km. Roads without a flow match draw nothing. Dots are a visualization of flow segments, not reported vehicle positions | TomTom + OSM | 🟡 |
+| 🚗 **Traffic** | Unavailable. This build does not draw vehicles from TomTom flow or from hardcoded speeds | — | off |
 | 📹 **CCTV Mesh** | ~800 public cameras projected *into* the 3D space — Austin · California (Caltrans) · London (TfL). Positions are published; poses are estimated priors **you calibrate by dragging a gizmo on the camera itself** | City APIs | 🟢 |
 | 📻 **Radio** | Geolocated world radio with an **analog tuner** — drag the needle across up to 750 stations and the globe flies to each broadcaster | Radio Browser / broadcasters | 🟢 |
 | 🚲 **Bikeshare** | Live station availability | GBFS | 🟢 |
@@ -386,7 +386,7 @@ Six keys. Four have a free tier, and the two 🔴 ones are metered:
 | 🔴 | **OpenAI** | 🎙️ The voice experience + AI HUD summary. The mini model works; the standard model is noticeably smarter. Want Gemini or another provider behind the mic? PRs welcome | [platform.openai.com](https://platform.openai.com) — metered, see costs below |
 | 🟡 | **AISStream** | 🚢 Live global ships | [aisstream.io](https://aisstream.io) — free signup |
 | 🟡 | **NASA FIRMS** | 🔥 Live active fires | [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/api/map_key/) — free |
-| 🟡 | **TomTom** | 🚦 Live flow speeds and congestion colors. Without a key the traffic layer is off; it does not simulate vehicles | [developer.tomtom.com](https://developer.tomtom.com) — free tier available |
+| 🟡 | **TomTom** | Not used to place vehicles. Aggregate flow is not a vehicle-position observation | [developer.tomtom.com](https://developer.tomtom.com) |
 
 ![Diving from city-scale live congestion straight into an intersection's public camera](docs/media/05-traffic-to-cctv.gif)
 

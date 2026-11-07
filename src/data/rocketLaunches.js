@@ -2841,11 +2841,10 @@ function addLaunchEntity(launch, activeTleText = _activeTleText) {
       { launchTime: launch.launchTime },
     )
     : null);
-  const orbitPath = !orbitAllowed
-    ? null
-    : satelliteTrack?.orbitPath?.length > 1
-      ? satelliteTrack.orbitPath
-      : approximateOrbitPath(launch);
+  // Pad coordinates and any trajectory points supplied by Launch Library are
+  // drawn below. Propagated TLE rings, planar orbit guesses, and reconstructed
+  // climbs are estimates, so they are not drawn.
+  const orbitPath = null;
   launch.recoveryStages.forEach((stage) => {
     stage.endpoint = landingEndpoint(stage, launch, orbitPath?.[0] || null);
   });

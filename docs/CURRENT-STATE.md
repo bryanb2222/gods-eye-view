@@ -2528,24 +2528,14 @@ easier to meet (detection is now on more often), but does not create it.
 - Annotation resolver behavior is pinned by `src/annotations/annotationResolver.test.mjs`; re-run that suite before changing place-resolution scoring.
 - Layer input handlers (click + keydown) are detached on disable for flights/military/satellites/AIS vessels.
 - Traffic tile cache is capped and traffic layer supports explicit destroy cleanup.
-- Traffic does not simulate vehicles. `getStats().mode` is the CONFIGURED
-  source ('live' = a TomTom key is present, 'off' = keyless or the status probe
-  failed), NOT this instant's health — health rides on `error`. Keyless reads
-  UNAVAILABLE with `TomTom key required`; an unreachable `/api/tomtom/status`
-  reads `TomTom status unreachable`. A total flow-fetch failure in live mode
-  sets `error` (DEGRADED · `<reason>`) and draws no replacement vehicles.
-  `stats.loading` covers outstanding flow work as well as the road fetch, so a
-  failure landing after the 250 ms paint race still ends the shared loading
-  batch as LOAD FAILED. Harnesses must gate on `!stats.error`, never on
-  `mode === 'live'` alone.
-- Traffic stays off unless `TOMTOM_API_KEY` is configured (env or Keychain
-  `tomtom-api`/`api-key`), which enables `live` mode: TomTom flow vector tiles
-  via the budget-governed `/api/tomtom` proxy (`.gev-cache/tomtom/`, 120 s TTL,
-  `TOMTOM_DAILY_TILE_BUDGET` default 40k/day), decoded client-side
-  (`flowTiles.js`), matched onto Overpass roads (`flowMatch.js`). Only matched
-  roads render, as green/amber/red dot color + speed/density
-  scaling (`trafficFlowStyle.js`); closures and unmatched roads spawn no dots.
-  Road fetch bounds center on the camera look-at point (`trafficBounds.js`).
+- Street traffic draws no vehicles. `getStats().mode` is `off` and the error
+  is `No vehicle-position feed`. TomTom flow segments are not placed on the
+  globe as dots or congestion corridors. Aircraft display holds the latest
+  reported ADS-B/OpenSky position when the render time is outside two reported
+  fixes; it does not coast past that fix. Rocket geometry draws the pad and
+  source-supplied trajectory points only. CCTV icons use published catalog
+  coordinates; view cones and in-world projections require `poseObserved` or a
+  saved manual calibration. An empty camera catalog is an error, not a seed grid.
 - Development captures opened with `?trafficDebug=1` mint an interaction anchor
   from the exact `camera.changed` event that arms each debounced load, then emit
   scheduling-correlated User Timing entries for production `response.json`, road

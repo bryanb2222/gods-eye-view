@@ -30,8 +30,8 @@ import {
 } from './trackedCamera.js';
 import {
   courseBetweenCartesians, limitCourseStep, turnRateFromFixHistory, arcOffsetEnu,
-  lerpAngleDeg, speedRamp, courseSlewCapDps, displayedKinematics, staleCoastLimitSeconds,
-  liftRepeatedGroundFix, synthesizeForwardKinematicsFix, COURSE_HOLD_SPEED_MPS,
+  lerpAngleDeg, speedRamp, courseSlewCapDps, displayedKinematics,
+  liftRepeatedGroundFix, COURSE_HOLD_SPEED_MPS,
 } from './motionModel.js';
 import { setMilitaryLayerActive, registerMilitaryIcaos } from './militaryRegistry.js';
 import { formatFlightLevel } from './detectionDraw.js';
@@ -974,36 +974,14 @@ function _deadReckon(icao24, result) {
 
   const newest = history[history.length - 1];
   const elapsedSec = Cesium.JulianDate.secondsDifference(renderTime, newest.time);
-  if (elapsedSec <= 0) {
-    // Warm-up: renderTime predates ALL history (freshly seen / just-started-tracking
-    // aircraft, before RENDER_DELAY_SEC of history has accumulated, so no bracketing
-    // pair exists yet). Render at the DELAYED renderTime — preserving the behind-real-time
-    // invariant — by extrapolating the OLDEST fix BACKWARD to renderTime. As history
-    // fills, renderTime advances toward the first fix and the icon glides FORWARD into
-    // the bracketing interpolation above with NO freeze and NO backward snap. (Holding
-    // the oldest fix froze the icon until enough history accrued, then jumped.)
-    const oldest = history[0];
-    const lookbackSec = Cesium.JulianDate.secondsDifference(oldest.time, renderTime); // ≥ 0
-    return _extrapolateFix(oldest, info, -Math.min(lookbackSec, 60), out, (info && info.turnRateDps) || 0);
-  }
-
-  // Continue through fresh adsb.lol contacts even when the position epoch has
-  // not advanced, but keep an absolute stale-feed drift ceiling.
-  const coastLimitSec = staleCoastLimitSeconds({
-    // Captured at poll normalization so the fleet tick does not allocate a
-    // Date for every aircraft twelve times per second.
-    fixEpochMs: Number.isFinite(newest.epochMs)
-      ? newest.epochMs
-      : Cesium.JulianDate.toDate(newest.time).getTime(),
-    lastContactEpochMs: info?.lastContactEpochMs,
-  });
-  return _extrapolateFix(
-    newest,
-    info,
-    Math.min(elapsedSec, coastLimitSec),
-    out,
-    (info && info.turnRateDps) || 0,
-  );
+  // Outside a pair of reported fixes, hold the nearest reported position.
+  const held = elapsedSec <= 0 ? history[0] : newest;
+  const heldSpeed = Number.isFinite(held.velocity) ? held.velocity : ((info && info.speedMps) || 0);
+  const heldTrack = Number.isFinite(held.track) ? held.track : ((info && info.track) || 0);
+  _drSpeedMps = heldSpeed;
+  _drCourseDeg = heldTrack;
+  _drCourseHold = heldSpeed < COURSE_HOLD_SPEED_MPS;
+  return Cesium.Cartesian3.clone(held.position, out);
 }
 
 /**
@@ -3056,21 +3034,9 @@ const militaryFlightsLayer = {
           if (!modelOwnsGroundVisual) {
             liftRepeatedGroundFix(newest, position, meta.onGround);
           }
-          const kinematicsChanged = newest.velocity !== meta.speedMps
-            || newest.track !== meta.track;
-          if (kinematicsChanged) {
-            const synthetic = synthesizeForwardKinematicsFix(newest, {
-              epochMs: Date.now(),
-              velocity: meta.speedMps,
-              track: meta.track,
-              turnRateDps: meta.turnRateDps,
-            });
-            if (synthetic) {
-              history.push(synthetic);
-              if (history.length > POSITION_HISTORY_LIMIT) history.shift();
-              meta.turnRateDps = turnRateFromFixHistory(history);
-              if (isTracked) _appendTrailFix(synthetic.position.clone());
-            }
+          if (newest.velocity !== meta.speedMps || newest.track !== meta.track) {
+            newest.velocity = meta.speedMps;
+            newest.track = meta.track;
           }
         }
 

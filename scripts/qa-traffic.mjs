@@ -283,8 +283,8 @@ async function main() {
         `mode=${simStats?.mode} count=${simStats?.count} label="${label}"`);
       record('KEYLESS: zero flow-tile requests issued', keylessFlowReqs.length === 0,
         `flowRequests=${keylessFlowReqs.length}`);
-      const keylessHonest = simStats?.error === 'TomTom key required' && !/SIMULATED/i.test(label);
-      record('KEYLESS: error names the missing key and does not say SIMULATED', keylessHonest,
+      const keylessHonest = simStats?.error === 'No vehicle-position feed' && !/SIMULATED|\bLIVE\b/i.test(label);
+      record('KEYLESS: error says there is no vehicle-position feed', keylessHonest,
         `err=${simStats?.error || 'none'} label="${label}"`);
       if (!off || keylessFlowReqs.length !== 0 || !keylessHonest) exitCode = 1;
       await sleep(1000);

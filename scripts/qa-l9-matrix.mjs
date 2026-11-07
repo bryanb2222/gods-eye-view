@@ -1607,11 +1607,12 @@ async function runBrowserGroup(record) {
     if (guard) return guard;
     const r = await settle('traffic', 45);
     const s = r.stats || {};
+    const label = String(s.loadingLabel || '');
+    if (s.mode === 'off' && s.count === 0 && /UNAVAILABLE/i.test(label) && !/SIMULATED|\bLIVE\b/i.test(label)) {
+      return pass(`traffic draws no vehicles: "${label.slice(0, 70)}"`);
+    }
     if (env.keys.TOMTOM === false) {
-      const label = String(s.loadingLabel || '');
-      return s.mode === 'off' && s.count === 0 && /UNAVAILABLE/i.test(label) && !/SIMULATED/i.test(label)
-        ? pass(`keyless traffic is off: "${label.slice(0, 70)}"`)
-        : fail(`mode=${s.mode} count=${s.count} label="${label.slice(0, 70)}" — expected off, zero vehicles, and an UNAVAILABLE label`);
+      return fail(`mode=${s.mode} count=${s.count} label="${label.slice(0, 70)}" — expected off, zero vehicles, and an UNAVAILABLE label`);
     }
     const colored = (s.flowBuckets?.free || 0) + (s.flowBuckets?.slow || 0) + (s.flowBuckets?.jam || 0);
     if (s.mode === 'live' && s.tilesFetched > 0 && colored > 0) {
