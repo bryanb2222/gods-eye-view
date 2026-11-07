@@ -297,6 +297,16 @@ export function satelliteVisualsVisible(layerEnabled, requestedVisible) {
 }
 
 /**
+ * SGP4 points, orbit rings, tracked entities, and tracking labels are not
+ * observations. This stays false for every caller, including explicit params,
+ * saved selection, dense load, and Space Missions.
+ * @returns {false}
+ */
+export function satellitePositionsDisplayed() {
+  return false;
+}
+
+/**
  * Decide whether a valid catalog request represents a real mode transition.
  * Reapplying an already-active mode must not restart the dense TLE load.
  * @param {'core'|'dense'} currentCatalog Current catalog mode.
@@ -401,7 +411,8 @@ function _syncIssOverlay() {
   // Hidden when ISS is the tracked subject, and equally when ISS is DOCKED to
   // whatever is tracked: its ambient label would otherwise sit underneath the
   // tracked card at the same position.
-  const visible = _enabled && _params.showOrbits && _trackedNorad !== ISS_NORAD
+  const visible = satellitePositionsDisplayed()
+    && _enabled && _params.showOrbits && _trackedNorad !== ISS_NORAD
     && !_dockedCompanions.has(ISS_NORAD)
     && _catalog.has(ISS_NORAD) && _issDisplayCached();
   if (!visible) {
@@ -555,6 +566,7 @@ function computeOrbitPath(satrec, referenceDate) {
  * bright where above the horizon, dimmed where behind the globe.
  */
 function _showOrbitPath(noradId, color) {
+  if (!satellitePositionsDisplayed()) return;
   if (_orbitPaths.has(noradId)) return; // already showing
 
   const sat = _catalog.get(noradId);
@@ -953,6 +965,8 @@ function _updateTrackedSatelliteLabelModel(fallbackAltitudeM = null) {
 
 function _trackSatellite(noradId, { origin = 'programmatic' } = {}) {
   _clearTracking(false, { origin });
+  // No propagated tracked entity, orbit ring, or tracking label.
+  if (!satellitePositionsDisplayed()) return;
 
   const point = _points.get(noradId);
   const sat = _catalog.get(noradId);
@@ -1108,6 +1122,7 @@ async function _loadDenseCatalog({ signal = null } = {}) {
     const entries = parseTLE(text);
     const style = POINT_STYLES.dense;
     const now = new Date();
+    let stored = 0;
     let added = 0;
 
     for (let start = 0; start < entries.length; start += DENSE_CREATE_CHUNK) {
@@ -1122,10 +1137,12 @@ async function _loadDenseCatalog({ signal = null } = {}) {
         if (!satrec || satrec.error !== 0) continue;
         const noradId = Number(satrec.satnum);
         if (_catalog.has(noradId)) continue; // core catalog keeps priority
+        _catalog.set(noradId, { name: entry.name, satrec, group: 'dense' });
+        stored++;
+        if (!satellitePositionsDisplayed()) continue;
         const pos = propagatePosition(satrec, now);
         if (!pos) continue;
 
-        _catalog.set(noradId, { name: entry.name, satrec, group: 'dense' });
         const point = _pointCollection.add({
           position: Cesium.Cartesian3.fromDegrees(pos.longitude, pos.latitude, pos.altitude),
           pixelSize: style.pixelSize,
@@ -1148,7 +1165,7 @@ async function _loadDenseCatalog({ signal = null } = {}) {
     // an HTML error page the proxy passed through, or a feed of TLEs the core
     // catalog already owns. Treating it as success is the same lie as treating
     // a 502 as success, just through a different door.
-    if (added === 0) {
+    if (stored === 0) {
       console.warn(`[Data:Satellites] Dense group '${DENSE_GROUP_PATH}' returned no usable satellites`);
       _denseLoadFailed(token, 'feed returned no satellites');
       return { status: 'source-unavailable', reason: 'feed returned no satellites' };
@@ -1220,7 +1237,7 @@ function _removeDenseCatalog() {
  * - orbit ring GMST re-alignment every ~1s (WS-D1).
  */
 function _preRenderTick() {
-  if (!_enabled) return;
+  if (!_enabled || !satellitePositionsDisplayed()) return;
   const now = focusNowMs(Date.now());
 
   const interval = _trackedNorad ? 200 : POSITION_UPDATE_MS;
@@ -1331,7 +1348,8 @@ export function _runSatellitePreRenderForTest() {
  * drives) without constructing a WebGL viewer.
  * @param {{ catalog?: 'core'|'dense', showPoints?: boolean }} [options]
  */
-export function _setDenseCatalogStateForTest({ catalog = 'core', showPoints = true } = {}) {
+export function _setDenseCatalogStateForTest({ catalog = 'core', showPoints = false } = {}) {
+  void showPoints;
   _viewer = { scene: { primitives: { add: (p) => p, remove() {} } } };
   // Neutralize the shared world-overlay host: these tests exercise catalog and
   // row-control logic, not the ISS callout.
@@ -1354,7 +1372,7 @@ export function _setDenseCatalogStateForTest({ catalog = 'core', showPoints = tr
   _catalogRevision++;
   _trackedNorad = null;
   _cancelPendingTrackingRestore();
-  _params = { catalog, showPoints, showOrbits: false };
+  _params = { catalog, showPoints: false, showOrbits: false };
   _enabled = true;
 }
 
@@ -1371,7 +1389,7 @@ export function _clearDenseCatalogStateForTest() {
   _denseLoadToken++;
   _denseStatus = 'idle';
   _denseError = null;
-  _params = { catalog: 'core', showPoints: true, showOrbits: true };
+  _params = { catalog: 'core', showPoints: false, showOrbits: false };
   _cancelPendingTrackingRestore();
   _enabled = false;
 }
@@ -1392,17 +1410,14 @@ export function _setSatelliteLabelLifecycleStateForTest({
   _viewer = viewer;
   _catalog = new Map([[ISS_NORAD, { name: 'ISS (ZARYA)', satrec, group: 'stations' }]]);
   _points = new Map([[ISS_NORAD, point]]);
-  _orbitPaths = new Map([[
-    ISS_NORAD,
-    { primitive: { show: true, modelMatrix: new Cesium.Matrix4() }, gmstAtBake: 0 },
-  ]]);
+  _orbitPaths = new Map();
   _trackedNorad = null;
   _trackedEntity = null;
   if (!preservePending) _cancelPendingTrackingRestore();
   _trackedFrameNumber = -1;
   _trackedFrameGeo = null;
   _enabled = true;
-  _params = { catalog: 'core', showPoints: true, showOrbits: true };
+  _params = { catalog: 'core', showPoints: false, showOrbits: false };
   _overlayHost = overlayHost || DEFAULT_OVERLAY_HOST;
   _syncIssOverlay();
 }
@@ -1570,9 +1585,8 @@ const satellitesLayer = {
   enable(viewer) {
     _enabled = true;
     holdContinuousRender('satellites'); // per-frame animator (perf wave 2)
-    if (_pointCollection) _pointCollection.show = satelliteVisualsVisible(_enabled, _params.showPoints);
-    // Orbit ring primitives + persistent ISS host label — show them
-    for (const path of _orbitPaths.values()) path.primitive.show = satelliteVisualsVisible(_enabled, _params.showOrbits);
+    if (_pointCollection) _pointCollection.show = false;
+    for (const path of _orbitPaths.values()) path.primitive.show = false;
     _syncIssOverlay();
     // Re-attach input handlers and preRender propagation
     _installClickHandler(viewer);
@@ -1711,10 +1725,10 @@ const satellitesLayer = {
           satrec,
           group: entry.group,
         });
-        if (!_params.showPoints && !_params.showOrbits) continue;
+        if (!satellitePositionsDisplayed()) continue;
 
         const pos = propagatePosition(satrec, now);
-        if (!pos || !_params.showPoints) continue;
+        if (!pos) continue;
 
         const cartesian = Cesium.Cartesian3.fromDegrees(pos.longitude, pos.latitude, pos.altitude);
 
@@ -1733,7 +1747,7 @@ const satellitesLayer = {
         _points.set(noradId, point);
       }
 
-      if (_params.showOrbits && _catalog.has(ISS_NORAD)) {
+      if (satellitePositionsDisplayed() && _params.showOrbits && _catalog.has(ISS_NORAD)) {
         _showOrbitPath(ISS_NORAD, POINT_STYLES.iss.color);
         const issPath = _orbitPaths.get(ISS_NORAD);
         if (issPath) issPath.primitive.show = _params.showOrbits;

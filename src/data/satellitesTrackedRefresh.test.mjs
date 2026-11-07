@@ -95,8 +95,9 @@ test('selected satellite params survive delayed arrival and yield to newer expli
   });
   try {
     assert.doesNotThrow(() => satellitesLayer.setParams({ selectedSatTrackingId: 25544 }));
-    assert.equal(satellitesLayer.getParams().selectedSatTrackingId, 25544);
-    assert.equal(viewer.trackedEntity?.gevTrackedId, 'satellites:25544');
+    assert.equal(satellitesLayer.getParams().selectedSatTrackingId, null);
+    assert.equal(viewer.entities.values.length, 0);
+    assert.equal(viewer.trackedEntity, undefined);
 
     satellitesLayer.stopTracking();
     _removeSatelliteTrackingCandidateForTest(25544);
@@ -111,18 +112,20 @@ test('selected satellite params survive delayed arrival and yield to newer expli
       point,
       preservePending: true,
     });
-    assert.equal(_applyPendingSatelliteTrackingRestoreForTest(), true);
-    assert.equal(satellitesLayer.getParams().selectedSatTrackingId, 25544);
+    assert.equal(_applyPendingSatelliteTrackingRestoreForTest(), false);
+    assert.equal(satellitesLayer.getParams().selectedSatTrackingId, null);
+    assert.equal(viewer.entities.values.length, 0);
 
     satellitesLayer.setParams(
       { selectedSatTrackingId: 99999 },
       { origin: 'share-restore' },
     );
     assert.equal(_pendingSatelliteTrackingRestoreForTest(), 99999);
-    assert.equal(satellitesLayer.trackById(25544, { origin: 'user' }), true);
+    assert.equal(satellitesLayer.trackById(25544, { origin: 'user' }), false);
     assert.equal(_pendingSatelliteTrackingRestoreForTest(), null, 'new user selection cancels stale restore');
+    assert.equal(viewer.entities.values.length, 0);
     _applyPendingSatelliteTrackingRestoreForTest();
-    assert.equal(satellitesLayer.getParams().selectedSatTrackingId, 25544);
+    assert.equal(satellitesLayer.getParams().selectedSatTrackingId, null);
 
     satellitesLayer.stopTracking();
     _removeSatelliteTrackingCandidateForTest(25544);
@@ -194,26 +197,12 @@ test('a tracked docked cluster consolidates its companions onto one card', () =>
   });
 
   _runSatellitePreRenderForTest();
-  // The cluster scan is throttled, so advance past its interval before the frame
-  // that must observe the cluster.
   nowMs += 2000;
   viewer.scene.frameState.frameNumber = 2;
   _runSatellitePreRenderForTest();
 
-  const details = entity.gevLabelModel.details;
-  // Class leads the detail block; the altitude line follows it, and the
-  // consolidated companions stay last.
-  assert.equal(details[0], 'STATION · ISS', 'the class line names what this is');
-  assert.match(details[1], /NORAD 25544$/, 'the altitude line is unchanged');
-  assert.equal(details[2], 'DOCKED · PROGRESS-MS 34 · +1',
-    'companions are consolidated, named, and counted on the tracked card');
-
-  // Scoping is encoded in that string: THREE neighbours were seeded but only two
-  // are counted (the named one plus "+1"). The satellite 50 km away is not part
-  // of the cluster and keeps its own identity and label — the owner's explicit
-  // constraint that unrelated nearby satellites are never suppressed.
-  assert.doesNotMatch(details[2], /UNRELATED/);
-  assert.doesNotMatch(details[2], /\+2/);
+  assert.equal(entity.gevLabelModel.title, 'OLD');
+  assert.deepEqual(entity.gevLabelModel.details, ['? km']);
 });
 test('satellite pre-render refreshes the tracked altitude on each propagated frame', () => {
   const entity = { gevLabelModel: { title: 'OLD', details: ['? km'] } };
@@ -238,16 +227,12 @@ test('satellite pre-render refreshes the tracked altitude on each propagated fra
   });
 
   _runSatellitePreRenderForTest();
-  assert.equal(entity.gevLabelModel.title, 'ISS (ZARYA)');
-  assert.equal(entity.gevLabelModel.details[0], 'STATION · ISS');
-  assert.equal(entity.gevLabelModel.details[1], '353 km · NORAD 25544');
-
   epochIndex = 1;
   viewer.scene.frameState.frameNumber = 2;
   _runSatellitePreRenderForTest();
-  assert.equal(entity.gevLabelModel.details[1], '366 km · NORAD 25544');
-  assert.equal(entity.gevLabelModel.details[0], 'STATION · ISS',
-    'the class line survives an altitude-only republish');
+  assert.equal(entity.gevLabelModel.title, 'OLD');
+  assert.deepEqual(entity.gevLabelModel.details, ['? km']);
+  assert.equal(point.position.x, 0);
 });
 
 test('ISS ambient and tracked lifecycle uses cached host entries with no native labels or duplicate text', () => {
@@ -282,43 +267,25 @@ test('ISS ambient and tracked lifecycle uses cached host entries with no native 
     overlayHost,
   });
   try {
-    const ambientPublication = calls.find(([type]) => type === 'entries');
-    assert.ok(ambientPublication);
-    assert.equal(ambientPublication[1], 'satellites-iss');
-    assert.deepEqual(ambientPublication[3], ISS_OVERLAY_SOURCE_OPTIONS);
-    const ambient = ambientPublication[2][0];
-    assert.equal(ambient.title, 'ISS');
-    assert.equal(ambient.position(), point.position, 'ISS getter reads the existing point cache');
-    assert.equal(point.label, undefined, 'ISS point primitive carries no label graphic');
+    assert.equal(calls.some(([type]) => type === 'entries'), false);
+    assert.equal(satellitesLayer.getParams().showPoints, false);
+    assert.equal(satellitesLayer.getParams().showOrbits, false);
+    assert.equal(point.label, undefined);
 
     const trackedEntity = _trackIssForTest();
-    assert.ok(trackedEntity);
-    assert.equal(viewer.entities.values.length, 1, 'runtime guard requires a real tracked entity');
-    assert.equal(trackedEntity.label, undefined);
-    assert.ok(trackedEntity.point, 'tracked dot remains on the entity for camera framing');
-    const trackedEntry = createTrackedOverlayEntry(trackedEntity);
-    assert.ok(trackedEntry);
-    assert.equal(trackedEntry.id, 'satellites:25544');
-    assert.equal(trackedEntry.protected, true);
-    assert.equal(trackedEntry.paintLane, 'tracked');
+    assert.equal(trackedEntity, null);
+    assert.equal(viewer.entities.values.length, 0);
+    assert.equal(viewer.trackedEntity, undefined);
     assert.equal(
-      calls.filter(([type, sourceId]) => type === 'entries' && sourceId === 'satellites-iss').length,
-      2,
-      'tracking may refresh before ownership changes but must not publish a second ISS entry',
+      calls.filter(([type]) => type === 'entries').length,
+      0,
     );
-    assert.deepEqual(calls.slice(-2), [
-      ['clear', 'satellites-iss'],
-      ['visible', 'satellites-iss', false],
-    ], 'tracked ISS suppresses ambient text so the tracked card is the only text surface');
 
     _clearSatelliteLabelLifecycleForTest();
     cleaned = true;
     assert.equal(viewer.entities.values.length, 0);
-    assert.equal(
-      calls.filter(([type, sourceId]) => type === 'entries' && sourceId === 'satellites-iss').length,
-      3,
-      'untracking republishes exactly one persistent ISS ambient entry before teardown',
-    );
+    assert.equal(satellitesLayer.getParams().showPoints, false);
+    assert.equal(satellitesLayer.getParams().showOrbits, false);
   } finally {
     if (!cleaned) _clearSatelliteLabelLifecycleForTest();
   }
