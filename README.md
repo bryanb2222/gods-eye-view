@@ -50,6 +50,8 @@ Most feeds are live or regularly refreshed. A fresh visit opens the keyless
 Esri map and does not turn layers on. Aircraft icons, when that layer is on,
 sit on the latest reported coordinate and are not placed between reports.
 Satellite names can load, but propagated positions and orbit rings stay off.
+A request for the next ISS pass is answered unavailable: no predicted rise
+time, duration, elevation, or direction.
 Launch markers are pad coordinates, not flown trajectories. Street traffic
 does not draw vehicles. Public cameras use published locations; seed cameras
 and guessed view cones do not draw.
@@ -250,7 +252,7 @@ Twenty-eight tools, four jobs — the commands below come straight from the prod
 ![A spoken distance measurement spanning an airport, inspected from orbit](docs/media/04-airport-distance.gif)
 
 **🔎 Interrogate it** — analyst queries against the live layers:
-> 🗣️ *"How many flights are over Texas right now?"* · *"Which ships are headed to Oakland?"* · *"What is the biggest fire near Los Angeles?"* · *"Is anything flying above forty thousand feet?"* · *"When does the ISS pass over next?"*
+> 🗣️ *"How many flights are over Texas right now?"* · *"Which ships are headed to Oakland?"* · *"What is the biggest fire near Los Angeles?"* · *"Is anything flying above forty thousand feet?"*
 
 **🎛️ Operate it** — the whole console, hands-free:
 > 🗣️ *"Switch to night vision and turn on the flights layer."* · *"Turn on the camera viewsheds."* · *"Play a news radio station near Austin."* · *"Track that plane."* → *"Enter Cockpit."*
