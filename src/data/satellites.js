@@ -1891,10 +1891,11 @@ const satellitesLayer = {
   },
 
   /**
-   * Find a satellite by exact NORAD id (numeric string) or case-insensitive
-   * name substring. Position is freshly propagated via SGP4.
+   * Find a satellite by exact NORAD id or case-insensitive name substring.
+   * Returns catalog identity only. SGP4 coordinates are not observations and
+   * are not included.
    * @param {string|number} query NORAD id or partial name.
-   * @returns {{ noradId: number, name: string, position: Cesium.Cartesian3, latitude: number, longitude: number, altitudeM: number }|null}
+   * @returns {{ noradId: number, name: string }|null}
    */
   findByQuery(query) {
     if (query === null || query === undefined || !_catalog || _catalog.size === 0) return null;
@@ -1916,16 +1917,9 @@ const satellitesLayer = {
     if (noradId === null) return null;
 
     const sat = _catalog.get(noradId);
-    const pos = propagatePosition(sat.satrec, new Date());
-    if (!pos) return null;
-
     return {
       noradId,
       name: sat.name.trim(),
-      position: Cesium.Cartesian3.fromDegrees(pos.longitude, pos.latitude, pos.altitude),
-      latitude: pos.latitude,
-      longitude: pos.longitude,
-      altitudeM: pos.altitude,
     };
   },
 

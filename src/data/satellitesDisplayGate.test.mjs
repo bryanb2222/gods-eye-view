@@ -79,6 +79,33 @@ test('saved selection and track-by-id create no entity, ring, or label', () => {
   }
 });
 
+test('findByQuery returns the catalog name and no propagated coordinate', () => {
+  const point = { position: new Cesium.Cartesian3(), show: true };
+  const viewer = {
+    entities: new Cesium.EntityCollection(),
+    trackedEntity: undefined,
+    scene: { primitives: { remove() {} }, frameState: { frameNumber: 1 } },
+  };
+  const [, line1, line2] = ISS.split('\n');
+  _setSatelliteLabelLifecycleStateForTest({
+    viewer,
+    satrec: twoline2satrec(line1, line2),
+    point,
+    overlayHost: { setEntries() {}, setVisible() {}, clearSource() {} },
+  });
+  try {
+    const found = satellitesLayer.findByQuery('25544');
+    assert.equal(found?.noradId, 25544);
+    assert.equal(found?.name, 'ISS (ZARYA)');
+    assert.equal('latitude' in (found || {}), false);
+    assert.equal('longitude' in (found || {}), false);
+    assert.equal('altitudeM' in (found || {}), false);
+    assert.equal('position' in (found || {}), false);
+  } finally {
+    _clearDenseCatalogStateForTest();
+  }
+});
+
 test('dense catalog stores a name and no propagated point', async () => {
   const originalFetch = globalThis.fetch;
   try {
